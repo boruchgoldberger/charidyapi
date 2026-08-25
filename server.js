@@ -14,7 +14,10 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
+const multer = require('multer');
+const XLSX = require('xlsx');
 const { Pool } = require('pg');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } });
 
 const app = express();
 app.use(cors({ credentials: true, origin: true }));
@@ -634,6 +637,94 @@ app.post('/api/ref-groups', requireToken, async (req, res) => {
 app.delete('/api/ref-groups/:id', requireToken, async (req, res) => {
   try { await ensureSchema(); await pool.query('DELETE FROM ref_groups WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Historical import from a multi-sheet Charidy export ────────────────
+// Some older/archived campaigns may not be reachable via the live sync API
+// anymore, so a manual export (one sheet per campaign, campaign_id embedded
+// in the sheet name like "cid42916_...") is the real source of truth for
+// them. Runs as a background job — tens of thousands of rows, one at a
+// time, would otherwise exceed a normal request's time budget.
+const _importJobs = new Map(); // jobId -> { status, results, error, startedAt }
+
+function normEmailImp(e) { return e ? String(e).trim().toLowerCase() : null; }
+function normPhoneImp(p) { return p ? String(p).replace(/\D/g, '') : null; }
+
+async function runHistoricalImport(jobId, buffer) {
+  const job = _importJobs.get(jobId);
+  try {
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const results = [];
+    for (const sheetName of wb.SheetNames) {
+      const m = sheetName.match(/c?id\s*(\d+)/i);
+      if (!m) { results.push({ sheet: sheetName, skipped: true, reason: 'no campaign id found in sheet name' }); continue; }
+      const campaignId = m[1];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: null, raw: false });
+      let imported = 0;
+      const yearCounts = {};
+      for (const row of rows) {
+        const email = (row['Email'] || '').trim();
+        const phone = (row['Phone'] || row['phone_number'] || '').toString();
+        const amtRaw = row['Charge Amount Total'] ?? row['Charge Amount'] ?? row['Matched/Total Amount'];
+        const amount = amtRaw != null ? (parseFloat(String(amtRaw).replace(/[^0-9.\-]/g, '')) || null) : null;
+        let donatedAt = null;
+        if (row['Donation Date and Time']) {
+          const d = new Date(row['Donation Date and Time']);
+          if (!isNaN(d.getTime())) donatedAt = d.toISOString();
+        }
+        const gatewayRaw = row['gateway'] || '';
+        const isOffline = gatewayRaw === 'offline donation' || String(row['offline_donation_received'] || '').toLowerCase() === 'yes';
+        const gateway = isOffline ? 'offline' : 'online';
+        const donationId = String(row['Donation ID'] || ('import-' + campaignId + '-' + crypto.randomBytes(6).toString('hex')));
+        const team = row['great_grandfather_team_name'] || row['Team Name'] || row['great_grandfather_team_id'] || row['Team ID'] || null;
+        const year = donatedAt ? new Date(donatedAt).getUTCFullYear() : null;
+        if (year) yearCounts[year] = (yearCounts[year] || 0) + 1;
+        const fn = row['Billing First Name'] || null, ln = row['Billing Last Name'] || null;
+        const display = [fn, ln].filter(Boolean).join(' ') || null;
+
+        await pool.query(`
+          INSERT INTO donations (donation_id, campaign_id, campaign_year, donated_at, firstname, lastname, email, email_norm, phone_norm, amount, currency, utm_source, team, status, display_name, gateway, updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, NOW())
+          ON CONFLICT (donation_id) DO UPDATE SET
+            campaign_id=EXCLUDED.campaign_id, campaign_year=EXCLUDED.campaign_year, donated_at=EXCLUDED.donated_at,
+            firstname=EXCLUDED.firstname, lastname=EXCLUDED.lastname, email=EXCLUDED.email, email_norm=EXCLUDED.email_norm,
+            phone_norm=EXCLUDED.phone_norm, amount=EXCLUDED.amount, currency=EXCLUDED.currency, utm_source=EXCLUDED.utm_source,
+            team=EXCLUDED.team, status=EXCLUDED.status, display_name=EXCLUDED.display_name, gateway=EXCLUDED.gateway, updated_at=NOW()
+        `, [donationId, campaignId, String(year || ''), donatedAt, fn, ln, email || null, normEmailImp(email), normPhoneImp(phone),
+            amount, row['Currency'] || null, row['utm_source'] || null, team, row['Status'] || null, display, gateway]);
+        imported++;
+        // Let the event loop breathe every so often on a very long sheet.
+        if (imported % 500 === 0) await new Promise(r => setImmediate(r));
+      }
+      // Guess a label from whichever calendar year most of this sheet's
+      // donations actually fall in — only sets it if nothing's been set yet,
+      // so it never clobbers a label you already assigned on purpose.
+      const guessedYear = Object.entries(yearCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+      if (guessedYear) {
+        await pool.query(`INSERT INTO campaign_labels (campaign_id, label) VALUES ($1,$2) ON CONFLICT (campaign_id) DO NOTHING`, [campaignId, guessedYear]);
+      }
+      results.push({ sheet: sheetName, campaign_id: campaignId, rows_in_sheet: rows.length, imported, guessed_label: guessedYear });
+      _importJobs.set(jobId, { status: 'running', results: [...results], startedAt: job.startedAt });
+    }
+    _importJobs.set(jobId, { status: 'done', results, startedAt: job.startedAt });
+  } catch (e) {
+    _importJobs.set(jobId, { status: 'failed', error: e.message, results: job.results || [], startedAt: job.startedAt });
+  }
+}
+
+app.post('/api/import/historical-xlsx', requireToken, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded (field name "file").' });
+  await ensureSchema();
+  const jobId = crypto.randomBytes(8).toString('hex');
+  _importJobs.set(jobId, { status: 'running', results: [], startedAt: Date.now() });
+  runHistoricalImport(jobId, req.file.buffer).catch(e => console.error('[import bg]', e.message));
+  res.json({ ok: true, job_id: jobId });
+});
+
+app.get('/api/import/status/:jobId', requireToken, (req, res) => {
+  const job = _importJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Unknown import job (may have expired on a restart).' });
+  res.json({ ok: true, ...job });
 });
 
 // ── CSV export — everything, since the org's SMS tool (TextMagic) has API
