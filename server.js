@@ -12,25 +12,47 @@
 // ─────────────────────────────────────────────────────────────────────────
 const express = require('express');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
+const crypto = require('crypto');
 const { Pool } = require('pg');
 
 const app = express();
-app.use(cors());
+app.use(cors({ credentials: true, origin: true }));
 app.use(express.json({ limit: '5mb' }));
+app.use(cookieParser());
+app.use(express.static(require('path').join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 8080;
-const SYNC_TOKEN = process.env.SYNC_TOKEN || null; // set this in Railway; protects admin endpoints
+const SYNC_TOKEN = process.env.SYNC_TOKEN || null; // kept as a fallback for API/automation use (e.g. curl) — the dashboard itself now uses a real login instead
+const DASHBOARD_USERNAME = process.env.DASHBOARD_USERNAME || 'admin';
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || null;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_URL?.includes('railway') ? { rejectUnauthorized: false } : false });
 
-function requireToken(req, res, next) {
-  if (!SYNC_TOKEN) return res.status(500).json({ error: 'SYNC_TOKEN not configured on the server — set it before use.' });
+// Accepts EITHER a logged-in session cookie (what the dashboard uses) OR the
+// raw x-sync-token header (kept for scripts/curl/automation) — either one
+// is sufficient. The dashboard no longer asks anyone to paste a token.
+async function requireToken(req, res, next) {
   const supplied = req.headers['x-sync-token'] || req.query.token;
-  if (supplied !== SYNC_TOKEN) return res.status(401).json({ error: 'Invalid or missing sync token (x-sync-token header, or ?token=).' });
-  next();
+  if (SYNC_TOKEN && supplied === SYNC_TOKEN) return next();
+  const sid = req.cookies && req.cookies.session;
+  if (sid) {
+    try {
+      const r = await pool.query('SELECT * FROM sessions WHERE id=$1 AND expires_at > NOW()', [sid]);
+      if (r.rows.length) return next();
+    } catch (e) { /* fall through to 401 */ }
+  }
+  return res.status(401).json({ error: 'Not logged in.' });
 }
 
 // ── Schema ──────────────────────────────────────────────────────────────
 async function ensureSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      expires_at TIMESTAMPTZ
+    )
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS donations (
       donation_id TEXT PRIMARY KEY,
@@ -70,6 +92,51 @@ async function ensureSchema() {
   `);
 }
 function syncKey(org, campaign, year) { return `${org}:${campaign}:${year}`; }
+
+// ── Login ───────────────────────────────────────────────────────────────
+// Constant-time-ish comparison so a wrong password doesn't leak timing info.
+function safeEqual(a, b) {
+  const bufA = Buffer.from(String(a || ''));
+  const bufB = Buffer.from(String(b || ''));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+app.post('/api/login', async (req, res) => {
+  try {
+    if (!DASHBOARD_PASSWORD) return res.status(500).json({ error: 'DASHBOARD_PASSWORD not configured on the server yet — set it in Railway variables.' });
+    await ensureSchema();
+    const { username, password } = req.body || {};
+    const userOk = safeEqual(username || DASHBOARD_USERNAME, DASHBOARD_USERNAME);
+    const passOk = safeEqual(password, DASHBOARD_PASSWORD);
+    if (!userOk || !passOk) return res.status(401).json({ error: 'Incorrect username or password.' });
+    const sid = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    await pool.query('INSERT INTO sessions (id, expires_at) VALUES ($1,$2)', [sid, expires]);
+    res.cookie('session', sid, { httpOnly: true, secure: true, sameSite: 'lax', expires, path: '/' });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/logout', async (req, res) => {
+  try {
+    const sid = req.cookies && req.cookies.session;
+    if (sid) await pool.query('DELETE FROM sessions WHERE id=$1', [sid]).catch(() => {});
+    res.clearCookie('session', { path: '/' });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/me', async (req, res) => {
+  try {
+    await ensureSchema();
+    const sid = req.cookies && req.cookies.session;
+    if (!sid) return res.json({ loggedIn: false });
+    const r = await pool.query('SELECT * FROM sessions WHERE id=$1 AND expires_at > NOW()', [sid]);
+    res.json({ loggedIn: r.rows.length > 0 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 
 // ── Charidy admin API — same base URL, login flow, and field mapping as
 // the proven bgold-ivr implementation ──────────────────────────────────
@@ -394,7 +461,68 @@ app.get('/api/donations', requireToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ── Once-a-minute in-process auto-sync scheduler (incremental) ──────────
+// GET /api/summary?year=2025 — aggregate totals + breakdowns, the data a
+// comparison dashboard actually needs (not raw rows).
+app.get('/api/summary', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    const year = (req.query.year || '').trim();
+    const where = year && year !== 'all' ? 'WHERE campaign_year = $1' : '';
+    const params = year && year !== 'all' ? [year] : [];
+    const totals = (await pool.query(
+      `SELECT COUNT(*) n, COALESCE(SUM(amount),0) total, COALESCE(AVG(amount),0) avg_gift,
+              COUNT(DISTINCT email_norm) donors
+         FROM donations ${where}`, params)).rows[0];
+    const bySource = (await pool.query(
+      `SELECT COALESCE(utm_source,'(direct)') AS source, COUNT(*) n, COALESCE(SUM(amount),0) total
+         FROM donations ${where} GROUP BY 1 ORDER BY total DESC LIMIT 25`, params)).rows;
+    const byTeam = (await pool.query(
+      `SELECT COALESCE(team,'(no team)') AS team, COUNT(*) n, COALESCE(SUM(amount),0) total
+         FROM donations ${where} GROUP BY 1 ORDER BY total DESC LIMIT 25`, params)).rows;
+    const byGateway = (await pool.query(
+      `SELECT COALESCE(gateway,'unknown') AS gateway, COUNT(*) n, COALESCE(SUM(amount),0) total
+         FROM donations ${where} GROUP BY 1 ORDER BY total DESC`, params)).rows;
+    const dayWhereParts = [];
+    if (year && year !== 'all') dayWhereParts.push('campaign_year = $1');
+    dayWhereParts.push('donated_at IS NOT NULL');
+    const dayWhere = 'WHERE ' + dayWhereParts.join(' AND ');
+    const byDay = (await pool.query(
+      `SELECT DATE(donated_at) AS day, COUNT(*) n, COALESCE(SUM(amount),0) total
+         FROM donations ${dayWhere} GROUP BY 1 ORDER BY 1`, params)).rows;
+    res.json({
+      ok: true, year: year || 'all',
+      totals: { count: Number(totals.n), amount: Number(totals.total), avg_gift: Number(totals.avg_gift), donors: Number(totals.donors) },
+      by_source: bySource.map(r => ({ source: r.source, count: Number(r.n), amount: Number(r.total) })),
+      by_team: byTeam.map(r => ({ team: r.team, count: Number(r.n), amount: Number(r.total) })),
+      by_gateway: byGateway.map(r => ({ gateway: r.gateway, count: Number(r.n), amount: Number(r.total) })),
+      by_day: byDay.map(r => ({ day: r.day, count: Number(r.n), amount: Number(r.total) }))
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/sync/reset — clears a sync job stuck at "running" (e.g. from a
+// deploy/restart killing it mid-run) so it can be retried. Only allows
+// resetting jobs that have genuinely been running a long time, as a guard
+// against accidentally interrupting one that's actually still working.
+app.post('/api/sync/reset', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    const { org, campaign, year } = req.body;
+    if (!org || !campaign || !year) return res.status(400).json({ error: 'org, campaign, year required.' });
+    const k = syncKey(org, campaign, year);
+    const row = (await pool.query('SELECT * FROM charidy_sync WHERE k=$1', [k])).rows[0];
+    if (!row) return res.status(404).json({ error: 'No sync job found for that org/campaign/year.' });
+    const minutesRunning = row.last_run_started_at ? (Date.now() - new Date(row.last_run_started_at).getTime()) / 60000 : 0;
+    if (row.status === 'running' && minutesRunning < 5 && !req.body.force) {
+      return res.status(409).json({ error: 'Only been running ' + Math.round(minutesRunning) + ' min — likely still genuinely working. Pass force:true to reset anyway.' });
+    }
+    _syncRunning.delete(k);
+    await pool.query(`UPDATE charidy_sync SET status='idle', last_error='Manually reset from a stuck state', updated_at=NOW() WHERE k=$1`, [k]);
+    res.json({ ok: true, reset: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
 setInterval(async () => {
   try {
     await ensureSchema();

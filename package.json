@@ -9,7 +9,8 @@
   "dependencies": {
     "express": "^4.19.2",
     "pg": "^8.11.5",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "cookie-parser": "^1.4.6"
   },
   "engines": {
     "node": ">=18"
