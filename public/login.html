@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in — Agudah Campaign Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{ --bg:#12151c; --panel:#1a1f29; --line:#2c3240; --ink:#eceef2; --ink-dim:#93989f; --gold:#c9a227; --clay:#c15a3f; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+       min-height:100vh;display:flex;align-items:center;justify-content:center;}
+  .card{max-width:380px;width:100%;padding:2.4rem;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:1rem;}
+  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin:0 0 .5rem;}
+  h1{font-family:'Fraunces',serif;font-weight:700;font-size:1.7rem;margin:0 0 1.6rem;letter-spacing:-.01em;}
+  label{display:block;font-family:'IBM Plex Mono',monospace;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-dim);margin-bottom:.4rem;}
+  input{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);padding:.7rem .9rem;border-radius:6px;font-size:.9rem;margin-bottom:1.1rem;}
+  input:focus{outline:none;border-color:var(--gold);}
+  button{width:100%;background:var(--gold);color:#1a1508;border:none;padding:.75rem;border-radius:6px;font-weight:600;font-size:.9rem;cursor:pointer;}
+  button:disabled{opacity:.6;cursor:default;}
+  .err{color:var(--clay);font-family:'IBM Plex Mono',monospace;font-size:.8rem;margin-top:.9rem;min-height:1.2em;}
+</style>
+</head>
+<body>
+<form class="card" id="loginForm">
+  <div class="eyebrow">Agudah National Office · Charidy</div>
+  <h1>Sign in</h1>
+  <label for="u">Username</label>
+  <input id="u" name="username" autocomplete="username" value="admin">
+  <label for="p">Password</label>
+  <input id="p" name="password" type="password" autocomplete="current-password" autofocus>
+  <button type="submit" id="submitBtn">Sign in</button>
+  <div class="err" id="err"></div>
+</form>
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn'), err = document.getElementById('err');
+  btn.disabled = true; btn.textContent = 'Signing in…'; err.textContent = '';
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'include',
+      body: JSON.stringify({ username: document.getElementById('u').value, password: document.getElementById('p').value })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Sign in failed');
+    window.location.href = '/dashboard.html';
+  } catch (e2) {
+    err.textContent = e2.message;
+    btn.disabled = false; btn.textContent = 'Sign in';
+  }
+});
+</script>
+</body>
+</html>
