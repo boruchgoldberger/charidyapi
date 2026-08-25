@@ -224,6 +224,10 @@
     <h3>Combine refs</h3>
     <div class="list" id="combineList"></div>
     <input type="text" id="combineLabel" placeholder="New combined label, e.g. Email blasts">
+    <label style="display:flex;align-items:flex-start;gap:.5rem;font-size:.8rem;color:var(--ink-dim);margin-bottom:1rem;cursor:pointer;">
+      <input type="checkbox" id="combineNotRealRef" style="margin-top:.2rem;">
+      These aren't real referral sources — count them as "no ref" in the Team/Ref segments (they'll still show under this label in the source table).
+    </label>
     <div style="display:flex;gap:.6rem;">
       <button class="btn" onclick="submitCombine()">Combine</button>
       <button class="btn ghost" onclick="closeCombineModal()">Cancel</button>
@@ -341,14 +345,16 @@ function toggleSourceSelect(name, checked){
 function openCombineModal(){
   document.getElementById('combineList').innerHTML = [...selectedSources].map(s=>esc(s)).join('<br>');
   document.getElementById('combineLabel').value = '';
+  document.getElementById('combineNotRealRef').checked = false;
   document.getElementById('combineModalBg').style.display = 'flex';
 }
 function closeCombineModal(){ document.getElementById('combineModalBg').style.display = 'none'; }
 async function submitCombine(){
   const label = document.getElementById('combineLabel').value.trim();
+  const treat_as_no_ref = document.getElementById('combineNotRealRef').checked;
   if(!label) return alert('Give the combined group a label first.');
   try{
-    await api('/api/ref-groups', {method:'POST', body: JSON.stringify({label, sources:[...selectedSources]})});
+    await api('/api/ref-groups', {method:'POST', body: JSON.stringify({label, sources:[...selectedSources], treat_as_no_ref})});
     closeCombineModal();
     selectedSources.clear();
     document.getElementById('combineBtn').disabled = true;
@@ -364,6 +370,7 @@ async function loadRefGroups(){
     el.innerHTML = d.rows.map(g =>
       '<div style="display:flex;align-items:center;gap:.6rem;padding:.4rem 0;border-bottom:1px solid var(--line);">'
       + '<strong style="font-size:.85rem;">'+esc(g.label)+'</strong>'
+      + (g.treat_as_no_ref ? '<span class="status-pill" style="color:var(--teal);border-color:var(--teal);">counts as no-ref</span>' : '')
       + '<span style="color:var(--ink-dim);font-family:IBM Plex Mono,monospace;font-size:.72rem;">'+g.sources.map(esc).join(', ')+'</span>'
       + '<span style="flex:1"></span>'
       + '<button class="btn ghost tiny" onclick="deleteRefGroup('+g.id+')">Remove</button>'
