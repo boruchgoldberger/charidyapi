@@ -1,0 +1,17 @@
+{
+  "name": "agudah-charidy-sync",
+  "version": "1.0.0",
+  "description": "Standalone Charidy donation sync for the Agudah campaign — deliberately separate from bgold-ivr so it never competes with that app's resources.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
