@@ -116,9 +116,11 @@ async function ensureSchema() {
       id SERIAL PRIMARY KEY,
       label TEXT NOT NULL,
       sources TEXT[] NOT NULL,
+      treat_as_no_ref BOOLEAN DEFAULT false,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE ref_groups ADD COLUMN IF NOT EXISTS treat_as_no_ref BOOLEAN DEFAULT false`).catch(()=>{});
 }
 function syncKey(org, campaign, year) { return `${org}:${campaign}:${year}`; }
 async function getCampaignLabels() {
@@ -512,25 +514,43 @@ function refGroupCaseSQL(refGroupRows) {
   return `CASE ${cases} ELSE COALESCE(utm_source,'(direct)') END`;
 }
 
+// Shared by /api/donations and /api/export/donations.csv — team/ref each
+// support: unset (no filter), "__has__" (must have any value), "__none__"
+// (must be blank), or free text (substring match). Plus amount range and
+// gateway, since exports need to answer "team+ref, over $X" style questions
+// directly, not just eyeball a breakdown table.
+function buildDonationFilters(req, paramsStart) {
+  const where = [], params = [];
+  const idx = () => paramsStart + params.length;
+  const team = (req.query.team || '').trim();
+  if (team === '__none__') where.push(`(team IS NULL OR team = '')`);
+  else if (team === '__has__') where.push(`(team IS NOT NULL AND team <> '')`);
+  else if (team) { params.push('%' + team.toLowerCase() + '%'); where.push(`LOWER(COALESCE(team,'')) LIKE $${idx()}`); }
+  const ref = (req.query.ref || '').trim();
+  if (ref === '__none__') where.push(`(utm_source IS NULL OR utm_source = '')`);
+  else if (ref === '__has__') where.push(`(utm_source IS NOT NULL AND utm_source <> '')`);
+  else if (ref) { params.push('%' + ref.toLowerCase() + '%'); where.push(`LOWER(COALESCE(utm_source,'')) LIKE $${idx()}`); }
+  const gateway = (req.query.gateway || '').trim();
+  if (gateway) { params.push(gateway); where.push(`gateway = $${idx()}`); }
+  const minAmt = req.query.min_amount !== undefined && req.query.min_amount !== '' ? Number(req.query.min_amount) : null;
+  if (minAmt != null && !isNaN(minAmt)) { params.push(minAmt); where.push(`amount >= $${idx()}`); }
+  const maxAmt = req.query.max_amount !== undefined && req.query.max_amount !== '' ? Number(req.query.max_amount) : null;
+  if (maxAmt != null && !isNaN(maxAmt)) { params.push(maxAmt); where.push(`amount <= $${idx()}`); }
+  const q = (req.query.q || '').trim().toLowerCase();
+  if (q) {
+    params.push('%' + q + '%'); const i = idx();
+    where.push(`(LOWER(COALESCE(display_name,'')||' '||COALESCE(firstname,'')||' '||COALESCE(lastname,'')) LIKE $${i} OR LOWER(COALESCE(email,'')) LIKE $${i} OR LOWER(COALESCE(utm_source,'')) LIKE $${i})`);
+  }
+  return { where, params };
+}
+
 app.get('/api/donations', requireToken, async (req, res) => {
   try {
     await ensureSchema();
     const camp = await resolveCampaignWhere(req, 1);
-    const where = camp.clause ? [camp.clause] : [];
-    const params = [...camp.params];
-    const team = (req.query.team || '').trim();
-    if (team === '__none__') where.push(`(team IS NULL OR team = '')`);
-    else if (team) { params.push('%' + team.toLowerCase() + '%'); where.push(`LOWER(COALESCE(team,'')) LIKE $${params.length}`); }
-    const ref = (req.query.ref || '').trim();
-    if (ref === '__none__') where.push(`(utm_source IS NULL OR utm_source = '')`);
-    else if (ref) { params.push('%' + ref.toLowerCase() + '%'); where.push(`LOWER(COALESCE(utm_source,'')) LIKE $${params.length}`); }
-    const gateway = (req.query.gateway || '').trim();
-    if (gateway) { params.push(gateway); where.push(`gateway = $${params.length}`); }
-    const q = (req.query.q || '').trim().toLowerCase();
-    if (q) {
-      params.push('%' + q + '%'); const i = params.length;
-      where.push(`(LOWER(COALESCE(display_name,'')||' '||COALESCE(firstname,'')||' '||COALESCE(lastname,'')) LIKE $${i} OR LOWER(COALESCE(email,'')) LIKE $${i} OR LOWER(COALESCE(utm_source,'')) LIKE $${i})`);
-    }
+    const f = buildDonationFilters(req, camp.params.length + 1);
+    const where = camp.clause ? [camp.clause, ...f.where] : f.where;
+    const params = [...camp.params, ...f.params];
     const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const limit = Math.min(parseInt(req.query.limit, 10) || 200, 5000);
     const rows = (await pool.query(`SELECT * FROM donations ${clause} ORDER BY donated_at DESC LIMIT ${limit}`, params)).rows;
@@ -565,12 +585,18 @@ app.get('/api/summary', requireToken, async (req, res) => {
     const byGateway = (await pool.query(
       `SELECT COALESCE(gateway,'unknown') AS gateway, COUNT(*) n, COALESCE(SUM(amount),0) total
          FROM donations ${whereSQL} GROUP BY 1 ORDER BY total DESC`, params)).rows;
-    // Segment cross-tab: has a team? has a ref? — the 4 combinations, plus
-    // online/offline split within each, exactly as requested.
+    // Segment cross-tab: has a team? has a REAL ref? — sources in a group
+    // marked "treat as no ref" (e.g. junk/internal codes that aren't
+    // genuine referral sources) count as no-ref here, even though they
+    // still show under their own label in the source breakdown above.
+    const junkSources = refGroupRows.filter(g => g.treat_as_no_ref).flatMap(g => g.sources.map(s => String(s).toLowerCase()));
+    const hasRefExpr = junkSources.length
+      ? `(utm_source IS NOT NULL AND utm_source <> '' AND LOWER(utm_source) NOT IN (${junkSources.map(s => `'${s.replace(/'/g, "''")}'`).join(',')}))`
+      : `(utm_source IS NOT NULL AND utm_source <> '')`;
     const segRows = (await pool.query(
       `SELECT
          (team IS NOT NULL AND team <> '') AS has_team,
-         (utm_source IS NOT NULL AND utm_source <> '') AS has_ref,
+         ${hasRefExpr} AS has_ref,
          COALESCE(gateway,'unknown') AS gateway,
          COUNT(*) n, COALESCE(SUM(amount),0) total
        FROM donations ${whereSQL}
@@ -628,9 +654,9 @@ app.get('/api/ref-groups', requireToken, async (req, res) => {
 app.post('/api/ref-groups', requireToken, async (req, res) => {
   try {
     await ensureSchema();
-    const { label, sources } = req.body;
+    const { label, sources, treat_as_no_ref } = req.body;
     if (!label || !Array.isArray(sources) || !sources.length) return res.status(400).json({ error: 'label and a non-empty sources array required.' });
-    const r = await pool.query('INSERT INTO ref_groups (label, sources) VALUES ($1,$2) RETURNING id', [label, sources]);
+    const r = await pool.query('INSERT INTO ref_groups (label, sources, treat_as_no_ref) VALUES ($1,$2,$3) RETURNING id', [label, sources, !!treat_as_no_ref]);
     res.json({ ok: true, id: r.rows[0].id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -745,25 +771,21 @@ app.get('/api/export/donations.csv', requireToken, async (req, res) => {
   try {
     await ensureSchema();
     const camp = await resolveCampaignWhere(req, 1);
-    const where = camp.clause ? [camp.clause] : [];
-    const params = [...camp.params];
-    const team = (req.query.team || '').trim();
-    if (team === '__none__') where.push(`(team IS NULL OR team = '')`);
-    else if (team) { params.push('%' + team.toLowerCase() + '%'); where.push(`LOWER(COALESCE(team,'')) LIKE $${params.length}`); }
-    const ref = (req.query.ref || '').trim();
-    if (ref === '__none__') where.push(`(utm_source IS NULL OR utm_source = '')`);
-    else if (ref) { params.push('%' + ref.toLowerCase() + '%'); where.push(`LOWER(COALESCE(utm_source,'')) LIKE $${params.length}`); }
-    const gateway = (req.query.gateway || '').trim();
-    if (gateway) { params.push(gateway); where.push(`gateway = $${params.length}`); }
+    const f = buildDonationFilters(req, camp.params.length + 1);
+    const where = camp.clause ? [camp.clause, ...f.where] : f.where;
+    const params = [...camp.params, ...f.params];
     const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const rows = (await pool.query(`SELECT * FROM donations ${clause} ORDER BY donated_at DESC`, params)).rows;
     const csv = toCSV(rows, [
       { header: 'Donation ID', value: 'donation_id' }, { header: 'Campaign ID', value: 'campaign_id' },
+      { header: 'Season', value: 'campaign_year' },
       { header: 'Date', value: r => r.donated_at ? new Date(r.donated_at).toISOString() : '' },
       { header: 'First Name', value: 'firstname' }, { header: 'Last Name', value: 'lastname' },
-      { header: 'Email', value: 'email' }, { header: 'Amount', value: 'amount' }, { header: 'Currency', value: 'currency' },
+      { header: 'Display Name', value: 'display_name' },
+      { header: 'Email', value: 'email' }, { header: 'Phone (normalized)', value: 'phone_norm' },
+      { header: 'Amount', value: 'amount' }, { header: 'Currency', value: 'currency' },
       { header: 'Ref', value: 'utm_source' }, { header: 'Team', value: 'team' }, { header: 'Status', value: 'status' },
-      { header: 'Gateway', value: 'gateway' }, { header: 'Display Name', value: 'display_name' }
+      { header: 'Gateway', value: 'gateway' }
     ]);
     res.set('Content-Type', 'text/csv; charset=utf-8');
     res.set('Content-Disposition', `attachment; filename="donations-${req.query.label||req.query.year||'all'}.csv"`);
@@ -796,6 +818,67 @@ app.get('/api/export/summary.csv', requireToken, async (req, res) => {
 // Wipes all donation rows so a clean re-sync can rebuild them with correct
 // campaign_id tagging — needed once, to fix data from before that column
 // existed (when two seasons got merged under one hand-typed "year" label).
+// GET /api/donors/cross-year?labels=2026,2025,2024&mode=all — finds donors
+// (by normalized email) who gave in EVERY one of the given labels ("all",
+// i.e. genuine multi-year loyalty) or in ANY of them ("any"). Returns rich
+// per-donor summary info, not just an email list.
+async function crossYearQuery(req) {
+  const labels = String(req.query.labels || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!labels.length) throw Object.assign(new Error('labels required, comma-separated (e.g. ?labels=2026,2025,2024)'), { status: 400 });
+  const mode = req.query.mode === 'any' ? 'any' : 'all';
+  const f = buildDonationFilters(req, 1);
+  const extraWhere = f.where.length ? ' AND ' + f.where.join(' AND ') : '';
+  const labelsParamIdx = f.params.length + 1;
+  const havingClause = mode === 'all' ? `HAVING COUNT(DISTINCT cl.label) = ${labels.length}` : '';
+  const sql = `
+    SELECT
+      d.email_norm,
+      MAX(d.email) AS email,
+      MAX(d.firstname) AS firstname, MAX(d.lastname) AS lastname, MAX(d.phone_norm) AS phone_norm,
+      COUNT(DISTINCT cl.label) AS years_matched,
+      STRING_AGG(DISTINCT cl.label, ', ') AS years,
+      COUNT(*) AS gift_count,
+      COALESCE(SUM(d.amount),0) AS total_amount,
+      MIN(d.donated_at) AS first_gift, MAX(d.donated_at) AS last_gift
+    FROM donations d
+    JOIN campaign_labels cl ON cl.campaign_id = d.campaign_id
+    WHERE cl.label = ANY($${labelsParamIdx}) AND d.email_norm IS NOT NULL AND d.email_norm <> '' ${extraWhere}
+    GROUP BY d.email_norm
+    ${havingClause}
+    ORDER BY total_amount DESC
+  `;
+  const params = [...f.params, labels];
+  const rows = (await pool.query(sql, params)).rows;
+  return { labels, mode, rows };
+}
+
+app.get('/api/donors/cross-year', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    const { labels, mode, rows } = await crossYearQuery(req);
+    res.json({ ok: true, labels, mode, count: rows.length, total_amount: rows.reduce((s, r) => s + Number(r.total_amount), 0), rows });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+app.get('/api/export/cross-year.csv', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    const { labels, rows } = await crossYearQuery(req);
+    const csv = toCSV(rows, [
+      { header: 'Email', value: 'email' }, { header: 'First Name', value: 'firstname' }, { header: 'Last Name', value: 'lastname' },
+      { header: 'Phone (normalized)', value: 'phone_norm' },
+      { header: 'Years Gave', value: 'years' }, { header: 'Years Matched', value: 'years_matched' },
+      { header: 'Total Gifts', value: 'gift_count' }, { header: 'Total Amount', value: 'total_amount' },
+      { header: 'First Gift', value: r => r.first_gift ? new Date(r.first_gift).toISOString() : '' },
+      { header: 'Last Gift', value: r => r.last_gift ? new Date(r.last_gift).toISOString() : '' }
+    ]);
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="cross-year-${labels.join('-')}.csv"`);
+    res.send(csv);
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+
+
 app.post('/api/admin/wipe-donations', requireToken, async (req, res) => {
   try {
     await ensureSchema();
