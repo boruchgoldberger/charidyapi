@@ -879,6 +879,132 @@ app.get('/api/export/cross-year.csv', requireToken, async (req, res) => {
 });
 
 
+// ── TextMagic — Agudah's own account, called directly via their REST API
+// (not through this chat's own TextMagic tools, which are tied to a
+// different account). Docs: https://docs.textmagic.com/ — some field names
+// below are best-guess against the documented shape; /api/textmagic/test
+// exists specifically to verify against a real response before trusting
+// anything more elaborate.
+const TM_BASE = 'https://rest.textmagic.com/api/v2';
+function tmHeaders() {
+  const username = process.env.TEXTMAGIC_USERNAME, key = process.env.TEXTMAGIC_API_KEY;
+  if (!username || !key) throw new Error('Set TEXTMAGIC_USERNAME and TEXTMAGIC_API_KEY (Agudah\'s own TextMagic account) as env vars first.');
+  return { 'X-TM-Username': username, 'X-TM-Key': key, 'Content-Type': 'application/json' };
+}
+async function tmRequest(method, path, body) {
+  const r = await fetch(TM_BASE + path, { method, headers: tmHeaders(), body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error('TextMagic ' + method + ' ' + path + ' failed (' + r.status + '): ' + JSON.stringify(data).slice(0, 300));
+  return data;
+}
+
+app.get('/api/textmagic/test', requireToken, async (req, res) => {
+  try {
+    const account = await tmRequest('GET', '/account');
+    res.json({ ok: true, account });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Finds a custom field by name, creating it if it doesn't exist yet — used
+// so a donation amount can be a real dynamic field ({Amount}) in a message,
+// not just the standard name/phone/email fields.
+async function ensureCustomField(name) {
+  const list = await tmRequest('GET', '/customfields');
+  const rows = list.resources || list.data || (Array.isArray(list) ? list : []);
+  const existing = rows.find(f => (f.name || '').toLowerCase() === name.toLowerCase());
+  if (existing) return existing.id;
+  const created = await tmRequest('POST', '/customfields', { name });
+  return created.id;
+}
+
+// Builds the actual recipient list for a segment — reuses the exact same
+// filter logic as the CSV exports, so "who gets texted" always matches
+// "who's in the export" for the same filters. Dedupes by phone (one text
+// per person even if they have several matching donations), and carries
+// forward their total matching amount for personalization.
+async function resolveSegmentRecipients(req) {
+  await ensureSchema();
+  let rows;
+  if (req.query.labels || (req.body && req.body.labels)) {
+    // Cross-year mode
+    const cyReq = { query: { ...req.query, ...(req.body || {}) } };
+    const { rows: cyRows } = await crossYearQuery(cyReq);
+    rows = cyRows.map(r => ({ phone_norm: null, email_norm: r.email_norm, firstname: r.firstname, lastname: r.lastname, amount: Number(r.total_amount) }));
+  } else {
+    const camp = await resolveCampaignWhere({ query: { ...req.query, ...(req.body || {}) } }, 1);
+    const f = buildDonationFilters({ query: { ...req.query, ...(req.body || {}) } }, camp.params.length + 1);
+    const allWhere = [...(camp.clause ? [camp.clause] : []), ...f.where, `phone_norm IS NOT NULL`, `phone_norm <> ''`];
+    const params = [...camp.params, ...f.params];
+    const raw = (await pool.query(
+      `SELECT phone_norm, email_norm, MAX(firstname) AS firstname, MAX(lastname) AS lastname, COALESCE(SUM(amount),0) AS amount
+         FROM donations WHERE ${allWhere.join(' AND ')}
+         GROUP BY phone_norm, email_norm`,
+      params
+    )).rows;
+    rows = raw.map(r => ({ ...r, amount: Number(r.amount) }));
+  }
+  // US-centric normalization: a bare 10-digit number becomes +1XXXXXXXXXX.
+  // Flags anything that doesn't look like a workable number rather than
+  // silently sending to something malformed.
+  const withPhones = [], noPhone = [];
+  for (const r of rows) {
+    let p = r.phone_norm;
+    if (!p) { noPhone.push(r); continue; }
+    if (p.length === 10) p = '1' + p;
+    if (p.length !== 11 || !p.startsWith('1')) { noPhone.push(r); continue; }
+    withPhones.push({ ...r, phone_e164: '+' + p });
+  }
+  return { withPhones, noPhone };
+}
+
+function resolveMessageTemplate(template, r) {
+  return template
+    .replace(/\{First ?Name\}/gi, r.firstname || '')
+    .replace(/\{Last ?Name\}/gi, r.lastname || '')
+    .replace(/\{Amount\}/gi, r.amount != null ? ('$' + Number(r.amount).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '');
+}
+
+app.post('/api/textmagic/preview-segment', requireToken, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'message required.' });
+    const { withPhones, noPhone } = await resolveSegmentRecipients(req);
+    const sample = withPhones.slice(0, 5).map(r => ({ phone: r.phone_e164, firstname: r.firstname, amount: r.amount, resolved_text: resolveMessageTemplate(message, r) }));
+    res.json({ ok: true, recipient_count: withPhones.length, missing_phone_count: noPhone.length, sample });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/textmagic/send-segment', requireToken, async (req, res) => {
+  try {
+    if (req.body?.confirm !== 'SEND') return res.status(400).json({ error: 'Pass {"confirm":"SEND"} to actually send — this sends real text messages to real people and cannot be undone.' });
+    const { message, list_name } = req.body;
+    if (!message) return res.status(400).json({ error: 'message required.' });
+    const { withPhones, noPhone } = await resolveSegmentRecipients(req);
+    if (!withPhones.length) return res.status(400).json({ error: 'No recipients with a usable phone number matched this filter.' });
+
+    const amountFieldId = await ensureCustomField('Amount');
+    const list = await tmRequest('POST', '/lists', { name: list_name || ('Agudah segment - ' + new Date().toISOString()) });
+    const listId = list.id;
+
+    let created = 0, failed = 0;
+    for (const r of withPhones) {
+      try {
+        await tmRequest('POST', '/contacts', {
+          phone: r.phone_e164,
+          firstName: r.firstname || undefined,
+          lastName: r.lastname || undefined,
+          lists: [listId],
+          customFields: [{ id: amountFieldId, value: r.amount != null ? String(Math.round(r.amount)) : '' }]
+        });
+        created++;
+      } catch (e) { failed++; } // likely "already exists" for a returning donor — not fatal
+    }
+
+    const sendResult = await tmRequest('POST', '/messages', { text: message, lists: [listId] });
+    res.json({ ok: true, list_id: listId, contacts_created: created, contacts_failed_to_add: failed, recipient_count: withPhones.length, missing_phone_count: noPhone.length, send_result: sendResult });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/admin/wipe-donations', requireToken, async (req, res) => {
   try {
     await ensureSchema();
