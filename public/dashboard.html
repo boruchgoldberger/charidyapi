@@ -181,17 +181,19 @@
     </div>
 
     <div class="panel">
-      <div class="panel-head"><h2>Send via TextMagic</h2></div>
-      <p class="msg" style="margin-top:0;">Uses the same filters as the export above (or the cross-year selection below it). Personalize with <code>{First Name}</code>, <code>{Last Name}</code>, <code>{Amount}</code> — resolved per recipient from their matching donations.</p>
+      <div class="panel-head"><h2>Build a list in TextMagic</h2></div>
+      <p class="msg" style="margin-top:0;">Uses the same filters as the export above (or the cross-year selection below it). Creates a real list in your Agudah TextMagic account with everyone's matching donation amount set as a real <code>{Amount}</code> dynamic field — compose and send the actual message from TextMagic itself.</p>
       <div style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem;">
         <div><label class="msg" style="display:block;">Recipients from</label>
           <select id="tmSource"><option value="A">Export filter (A)</option><option value="B">Export filter (B)</option><option value="crossyear">Cross-year selection</option></select>
         </div>
+        <div><label class="msg" style="display:block;">List name</label>
+          <input type="text" id="tmListName" placeholder="e.g. Agudah 2026 - team+ref donors" style="width:260px;">
+        </div>
       </div>
-      <textarea id="tmMessage" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:.6rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem;" placeholder="Hi {First Name}, thank you for your ${Amount} gift to Agudah this year..."></textarea>
-      <div style="display:flex;gap:.6rem;margin-top:.8rem;flex-wrap:wrap;">
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;">
         <button class="btn ghost tiny" onclick="previewTextMagic()">Preview</button>
-        <button class="btn tiny" id="tmSendBtn" onclick="sendTextMagic()" disabled>Send now</button>
+        <button class="btn tiny" id="tmSendBtn" onclick="buildTmList()" disabled>Create list in TextMagic</button>
       </div>
       <div id="tmResult" class="msg"></div>
       <div id="tmSample" style="margin-top:.6rem;font-family:'IBM Plex Mono',monospace;font-size:.76rem;color:var(--ink-dim);"></div>
@@ -529,31 +531,29 @@ function buildTmParams(){
 let _tmLastPreviewOk = false;
 async function previewTextMagic(){
   const resultEl = document.getElementById('tmResult'), sampleEl = document.getElementById('tmSample');
-  const message = document.getElementById('tmMessage').value.trim();
   _tmLastPreviewOk = false;
   document.getElementById('tmSendBtn').disabled = true;
-  if(!message){ resultEl.textContent = 'Write a message first.'; return; }
   resultEl.textContent = 'Checking…'; sampleEl.innerHTML = '';
   try{
     const params = buildTmParams();
-    const d = await api('/api/textmagic/preview-segment?'+params.toString(), {method:'POST', body: JSON.stringify({message})});
+    const d = await api('/api/textmagic/preview-segment?'+params.toString(), {method:'POST', body: JSON.stringify({})});
     resultEl.textContent = d.recipient_count.toLocaleString()+' recipients with a usable phone number'+(d.missing_phone_count?(' · '+d.missing_phone_count.toLocaleString()+' matched but have no phone on file'):'')+'.';
-    sampleEl.innerHTML = 'Sample messages:<br>' + d.sample.map(s => esc(s.phone)+': "'+esc(s.resolved_text)+'"').join('<br>');
+    sampleEl.innerHTML = 'Sample:<br>' + d.sample.map(s => esc(s.phone)+' — '+esc(s.firstname||'')+' '+esc(s.lastname||'')+' — $'+Math.round(s.amount||0).toLocaleString()).join('<br>');
     if(d.recipient_count > 0){ _tmLastPreviewOk = true; document.getElementById('tmSendBtn').disabled = false; }
   }catch(e){ resultEl.textContent = 'Error: '+e.message; }
 }
 
-async function sendTextMagic(){
+async function buildTmList(){
   if(!_tmLastPreviewOk) return alert('Run Preview first.');
-  const message = document.getElementById('tmMessage').value.trim();
   const params = buildTmParams();
-  const ok = window.confirm('This sends REAL text messages to real people right now, through the Agudah TextMagic account. This cannot be undone.\n\nAre you sure?');
+  const list_name = document.getElementById('tmListName').value.trim();
+  const ok = window.confirm('This creates a real list and adds real contacts in the Agudah TextMagic account. Nothing gets sent yet \u2014 you\'ll compose and send from TextMagic itself.\n\nContinue?');
   if(!ok) return;
   const resultEl = document.getElementById('tmResult');
-  resultEl.textContent = 'Sending…';
+  resultEl.textContent = 'Building list…';
   try{
-    const d = await api('/api/textmagic/send-segment?'+params.toString(), {method:'POST', body: JSON.stringify({message, confirm:'SEND'})});
-    resultEl.textContent = '✓ Sent to '+d.recipient_count.toLocaleString()+' people (list id '+d.list_id+'). '+d.contacts_created+' contacts created/updated in TextMagic.';
+    const d = await api('/api/textmagic/build-list?'+params.toString(), {method:'POST', body: JSON.stringify({list_name, confirm:'BUILD'})});
+    resultEl.textContent = '✓ Created "'+d.list_name+'" (list id '+d.list_id+') with '+d.contacts_created.toLocaleString()+' contacts'+(d.contacts_failed_to_add?(' — '+d.contacts_failed_to_add+' already existed and were skipped'):'')+'. Go to TextMagic \u2192 Lists to compose and send.';
     document.getElementById('tmSendBtn').disabled = true;
     _tmLastPreviewOk = false;
   }catch(e){ resultEl.textContent = 'Error: '+e.message; }
