@@ -8,87 +8,75 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg: #12151c;
-    --panel: #1a1f29;
-    --panel-2: #212836;
-    --line: #2c3240;
-    --ink: #eceef2;
-    --ink-dim: #93989f;
-    --gold: #c9a227;
-    --gold-dim: #7d6a2c;
-    --teal: #5fa8a0;
-    --clay: #c15a3f;
+    --bg: #12151c; --panel: #1a1f29; --panel-2: #212836; --line: #2c3240;
+    --ink: #eceef2; --ink-dim: #93989f; --gold: #c9a227; --gold-dim: #7d6a2c;
+    --teal: #5fa8a0; --clay: #c15a3f; --green:#7ec488;
   }
   *{box-sizing:border-box;}
-  body{
-    margin:0; background:var(--bg); color:var(--ink);
-    font-family:'Inter',system-ui,sans-serif;
-    -webkit-font-smoothing:antialiased;
-  }
-  .wrap{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 5rem;}
-  .eyebrow{
-    font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.14em;
-    text-transform:uppercase; color:var(--gold); margin:0 0 .4rem;
-  }
-  h1{
-    font-family:'Fraunces',serif; font-weight:600; font-size:2.4rem; line-height:1.05;
-    margin:0 0 .3rem; letter-spacing:-.01em;
-  }
-  .sub{color:var(--ink-dim); font-size:.95rem; margin:0 0 2.2rem;}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1280px;margin:0 auto;padding:2.5rem 1.5rem 5rem;}
+  .eyebrow{font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--gold); margin:0 0 .4rem;}
+  h1{font-family:'Fraunces',serif; font-weight:600; font-size:2.2rem; line-height:1.05; margin:0 0 .3rem; letter-spacing:-.01em;}
+  h2{font-family:'Fraunces',serif; font-weight:600; font-size:1.15rem; margin:0 0 .8rem;}
+  .sub{color:var(--ink-dim); font-size:.9rem; margin:0 0 1.6rem;}
 
-  .gate{
-    max-width:420px; margin:8rem auto; text-align:center;
+  select, input[type=text]{
+    background:var(--panel); border:1px solid var(--line); color:var(--ink);
+    padding:.5rem .7rem; border-radius:6px; font-family:'IBM Plex Mono',monospace; font-size:.8rem;
   }
-  .gate input{
-    width:100%; background:var(--panel); border:1px solid var(--line); color:var(--ink);
-    padding:.8rem 1rem; border-radius:6px; font-family:'IBM Plex Mono',monospace; font-size:.85rem;
-    margin:1rem 0;
-  }
-  .gate button, .btn{
-    background:var(--gold); color:#1a1508; border:none; padding:.7rem 1.4rem;
-    border-radius:6px; font-weight:600; font-size:.85rem; cursor:pointer; letter-spacing:.01em;
-  }
-  .btn.ghost{background:transparent; border:1px solid var(--line); color:var(--ink); }
-  .btn.small{padding:.45rem .9rem; font-size:.78rem;}
+  .btn{background:var(--gold); color:#1a1508; border:none; padding:.55rem 1.1rem; border-radius:6px; font-weight:600; font-size:.8rem; cursor:pointer;}
+  .btn.ghost{background:transparent; border:1px solid var(--line); color:var(--ink);}
+  .btn.tiny{padding:.3rem .65rem; font-size:.72rem;}
   .btn:disabled{opacity:.5; cursor:default;}
 
-  .tally{
-    display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--line);
-    border-radius:12px; overflow:hidden; margin-bottom:1rem;
-  }
-  .tally-col{padding:1.8rem 2rem; background:var(--panel);}
+  .tally{display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--line); border-radius:12px 12px 0 0; overflow:hidden; margin-bottom:0;}
+  .tally-col{padding:1.6rem 1.8rem; background:var(--panel);}
   .tally-col + .tally-col{border-left:1px solid var(--line); background:var(--panel-2);}
   .tally-label{font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-dim); margin-bottom:.6rem;}
-  .tally-num{font-family:'Fraunces',serif; font-weight:700; font-size:3rem; letter-spacing:-.02em; line-height:1;}
+  .tally-num{font-family:'Fraunces',serif; font-weight:700; font-size:2.6rem; letter-spacing:-.02em; line-height:1;}
   .tally-num.gold{color:var(--gold);}
-  .tally-num.teal{color:var(--teal);}
-  .tally-meta{font-family:'IBM Plex Mono',monospace; font-size:.78rem; color:var(--ink-dim); margin-top:.5rem;}
-
-  .delta-bar-row{display:flex; align-items:center; gap:1rem; padding:1rem 2rem; background:var(--bg); border-bottom:1px solid var(--line); border-left:1px solid var(--line); border-right:1px solid var(--line); border-radius:0 0 12px 12px; margin-top:-1rem; margin-bottom:2rem;}
-  .delta-track{flex:1; height:8px; background:var(--panel); border-radius:4px; overflow:hidden; position:relative;}
+  .tally-meta{font-family:'IBM Plex Mono',monospace; font-size:.76rem; color:var(--ink-dim); margin-top:.5rem;}
+  .delta-bar-row{display:flex; align-items:center; gap:1rem; padding:.9rem 1.8rem; background:var(--bg); border:1px solid var(--line); border-top:none; border-radius:0 0 12px 12px; margin-bottom:2rem;}
+  .delta-track{flex:1; height:7px; background:var(--panel); border-radius:4px; overflow:hidden;}
   .delta-fill{height:100%; background:linear-gradient(90deg,var(--gold-dim),var(--gold)); border-radius:4px;}
-  .delta-pct{font-family:'IBM Plex Mono',monospace; font-size:.85rem; font-weight:600; white-space:nowrap;}
-  .delta-pct.up{color:#7ec488;} .delta-pct.down{color:var(--clay);}
+  .delta-pct{font-family:'IBM Plex Mono',monospace; font-size:.82rem; font-weight:600; white-space:nowrap;}
+  .delta-pct.up{color:var(--green);} .delta-pct.down{color:var(--clay);}
 
-  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; margin-bottom:2rem;}
-  @media (max-width:820px){ .grid2{grid-template-columns:1fr;} .tally{grid-template-columns:1fr;} .tally-col+.tally-col{border-left:none;border-top:1px solid var(--line);} }
+  .seg-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:.8rem; margin-bottom:1rem;}
+  .seg-grid2{display:grid; grid-template-columns:repeat(2,1fr); gap:.8rem; margin-bottom:2rem;}
+  .seg-card{background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:1rem 1.1rem;}
+  .seg-card .seg-title{font-family:'IBM Plex Mono',monospace; font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); margin-bottom:.6rem;}
+  .seg-row{display:flex; justify-content:space-between; font-size:.85rem; padding:.2rem 0;}
+  .seg-row .yr{color:var(--ink-dim); font-family:'IBM Plex Mono',monospace; font-size:.72rem;}
+  .seg-row .amt{font-family:'IBM Plex Mono',monospace; color:var(--gold); font-weight:500;}
+  @media (max-width:900px){ .seg-grid{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:700px){ .tally{grid-template-columns:1fr;} .tally-col+.tally-col{border-left:none;border-top:1px solid var(--line);} .seg-grid,.seg-grid2{grid-template-columns:1fr;} }
 
-  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:1.3rem 1.4rem;}
-  .panel h3{font-family:'IBM Plex Mono',monospace; font-size:.75rem; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-dim); margin:0 0 .9rem; font-weight:500;}
-  table{width:100%; border-collapse:collapse; font-size:.85rem;}
-  th{text-align:left; font-family:'IBM Plex Mono',monospace; font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); padding:.4rem .3rem; border-bottom:1px solid var(--line); font-weight:500;}
-  td{padding:.45rem .3rem; border-bottom:1px solid rgba(255,255,255,.04);}
-  td.num{font-family:'IBM Plex Mono',monospace; text-align:right; color:var(--gold);}
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:1.2rem 1.3rem; margin-bottom:1.6rem;}
+  .panel-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:.9rem; flex-wrap:wrap; gap:.5rem;}
+  table{width:100%; border-collapse:collapse; font-size:.83rem;}
+  th{text-align:left; font-family:'IBM Plex Mono',monospace; font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-dim); padding:.4rem .3rem; border-bottom:1px solid var(--line); font-weight:500; white-space:nowrap;}
+  td{padding:.4rem .3rem; border-bottom:1px solid rgba(255,255,255,.04); vertical-align:middle;}
+  td.num{font-family:'IBM Plex Mono',monospace; text-align:right; color:var(--gold); white-space:nowrap;}
+  td.num.dim{color:var(--ink-dim);}
   tr:last-child td{border-bottom:none;}
+  .table-scroll{max-height:480px; overflow-y:auto;}
+  .row-check{width:1.2rem;}
 
-  .toolbar{display:flex; gap:.6rem; align-items:center; margin-bottom:1.6rem; flex-wrap:wrap;}
-  .status-pill{font-family:'IBM Plex Mono',monospace; font-size:.72rem; padding:.25rem .6rem; border-radius:20px; border:1px solid var(--line); color:var(--ink-dim);}
+  .toolbar{display:flex; gap:.6rem; align-items:center; margin-bottom:1.4rem; flex-wrap:wrap;}
+  .status-pill{font-family:'IBM Plex Mono',monospace; font-size:.7rem; padding:.22rem .55rem; border-radius:20px; border:1px solid var(--line); color:var(--ink-dim);}
   .status-pill.running{color:var(--gold); border-color:var(--gold-dim);}
-  .status-pill.done{color:#7ec488;}
+  .status-pill.done{color:var(--green);}
   .status-pill.failed{color:var(--clay);}
   .msg{font-family:'IBM Plex Mono',monospace; font-size:.78rem; color:var(--ink-dim); margin-top:.5rem;}
   .msg.err{color:var(--clay);}
   .loading{color:var(--ink-dim); font-family:'IBM Plex Mono',monospace; font-size:.85rem; padding:3rem 0; text-align:center;}
+
+  .modal-bg{position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50;}
+  .modal{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:1.5rem; max-width:420px; width:90%;}
+  .modal h3{margin:0 0 1rem; font-family:'Fraunces',serif;}
+  .modal input{width:100%; margin-bottom:1rem;}
+  .modal .list{max-height:140px; overflow-y:auto; font-family:'IBM Plex Mono',monospace; font-size:.78rem; color:var(--ink-dim); margin-bottom:1rem; background:var(--bg); border-radius:6px; padding:.6rem;}
 </style>
 </head>
 <body>
@@ -98,9 +86,9 @@
     <div>
       <div class="eyebrow">Agudah National Office · Charidy</div>
       <h1>Campaign Ledger</h1>
-      <p class="sub">Live comparison of this year's campaign against last year's, pulled straight from Charidy.</p>
+      <p class="sub">Side-by-side comparison, pulled straight from Charidy.</p>
     </div>
-    <button class="btn ghost small" onclick="logout()">Sign out</button>
+    <button class="btn ghost tiny" onclick="logout()">Sign out</button>
   </div>
 
   <div class="toolbar">
@@ -108,27 +96,38 @@
     <span style="color:var(--ink-dim);font-family:'IBM Plex Mono',monospace;font-size:.8rem;">vs</span>
     <select id="yearB" onchange="loadAll()"></select>
     <span style="flex:1"></span>
-    <button class="btn ghost small" onclick="toggleSync()">Sync controls</button>
-    <button class="btn small" onclick="loadAll()">Refresh</button>
+    <a class="btn ghost tiny" id="exportDonationsA" href="#" target="_blank">⬇ Export donations (A)</a>
+    <a class="btn ghost tiny" id="exportDonationsB" href="#" target="_blank">⬇ Export donations (B)</a>
+    <button class="btn ghost tiny" onclick="toggleSync()">Sync controls</button>
+    <button class="btn tiny" onclick="loadAll()">Refresh</button>
   </div>
 
-  <div id="syncPanel" class="panel" style="display:none; margin-bottom:2rem;">
-    <h3>Sync status</h3>
+  <div id="syncPanel" class="panel" style="display:none;">
+    <div class="panel-head"><h2 style="margin:0;">Sync status</h2></div>
     <div id="syncRows"></div>
+    <div style="margin-top:1rem;border-top:1px solid var(--line);padding-top:1rem;">
+      <div class="panel-head"><h2 style="margin:0;font-size:.95rem;">Campaign labels</h2></div>
+      <div id="labelRows" style="margin-bottom:.8rem;"></div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+        <input type="text" id="newLabelCampaign" placeholder="campaign_id" style="width:120px;">
+        <input type="text" id="newLabelName" placeholder="label, e.g. 2026" style="width:140px;">
+        <button class="btn tiny" onclick="saveLabel()">Set label</button>
+      </div>
+    </div>
   </div>
 
   <div id="loading" class="loading">Loading the ledger…</div>
   <div id="content" style="display:none;">
     <div class="tally">
       <div class="tally-col">
-        <div class="tally-label" id="labelB">—</div>
-        <div class="tally-num" id="numB">$0</div>
-        <div class="tally-meta" id="metaB">—</div>
-      </div>
-      <div class="tally-col">
         <div class="tally-label" id="labelA">—</div>
         <div class="tally-num gold" id="numA">$0</div>
         <div class="tally-meta" id="metaA">—</div>
+      </div>
+      <div class="tally-col">
+        <div class="tally-label" id="labelB">—</div>
+        <div class="tally-num" id="numB">$0</div>
+        <div class="tally-meta" id="metaB">—</div>
       </div>
     </div>
     <div class="delta-bar-row">
@@ -136,31 +135,66 @@
       <div class="delta-pct" id="deltaPct">—</div>
     </div>
 
-    <div class="grid2">
-      <div class="panel">
-        <h3 id="sourceHeaderA">By source — this year</h3>
-        <table><thead><tr><th>Source</th><th style="text-align:right">Gifts</th><th style="text-align:right">Raised</th></tr></thead><tbody id="sourceA"></tbody></table>
+    <h2>Segments</h2>
+    <div class="seg-grid" id="segGrid"></div>
+    <div class="seg-grid2" id="gatewayGrid"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>By source (ref)</h2>
+        <div style="display:flex;gap:.5rem;">
+          <button class="btn ghost tiny" id="combineBtn" onclick="openCombineModal()" disabled>Combine selected</button>
+          <a class="btn ghost tiny" id="exportSourceA" href="#" target="_blank">⬇ CSV (A)</a>
+          <a class="btn ghost tiny" id="exportSourceB" href="#" target="_blank">⬇ CSV (B)</a>
+        </div>
       </div>
-      <div class="panel">
-        <h3 id="sourceHeaderB">By source — last year</h3>
-        <table><thead><tr><th>Source</th><th style="text-align:right">Gifts</th><th style="text-align:right">Raised</th></tr></thead><tbody id="sourceB"></tbody></table>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th class="row-check"></th><th>Source</th><th style="text-align:right">Gifts A</th><th style="text-align:right">Raised A</th><th style="text-align:right">Gifts B</th><th style="text-align:right">Raised B</th></tr></thead>
+          <tbody id="sourceTable"></tbody>
+        </table>
       </div>
     </div>
 
-    <div class="grid2">
-      <div class="panel">
-        <h3 id="teamHeaderA">Top teams — this year</h3>
-        <table><thead><tr><th>Team</th><th style="text-align:right">Gifts</th><th style="text-align:right">Raised</th></tr></thead><tbody id="teamA"></tbody></table>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>By team</h2>
+        <div style="display:flex;gap:.5rem;">
+          <a class="btn ghost tiny" id="exportTeamA" href="#" target="_blank">⬇ CSV (A)</a>
+          <a class="btn ghost tiny" id="exportTeamB" href="#" target="_blank">⬇ CSV (B)</a>
+        </div>
       </div>
-      <div class="panel">
-        <h3 id="teamHeaderB">Top teams — last year</h3>
-        <table><thead><tr><th>Team</th><th style="text-align:right">Gifts</th><th style="text-align:right">Raised</th></tr></thead><tbody id="teamB"></tbody></table>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Team</th><th style="text-align:right">Gifts A</th><th style="text-align:right">Raised A</th><th style="text-align:right">Gifts B</th><th style="text-align:right">Raised B</th></tr></thead>
+          <tbody id="teamTable"></tbody>
+        </table>
       </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Existing ref groups</h2></div>
+      <div id="refGroupsList" class="msg">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="combineModalBg">
+  <div class="modal">
+    <h3>Combine refs</h3>
+    <div class="list" id="combineList"></div>
+    <input type="text" id="combineLabel" placeholder="New combined label, e.g. Email blasts">
+    <div style="display:flex;gap:.6rem;">
+      <button class="btn" onclick="submitCombine()">Combine</button>
+      <button class="btn ghost" onclick="closeCombineModal()">Cancel</button>
     </div>
   </div>
 </div>
 
 <script>
+let SUM_A = null, SUM_B = null, YEAR_A = null, YEAR_B = null;
+const selectedSources = new Set();
+
 async function api(path, opts){
   opts = opts || {};
   opts.credentials = 'include';
@@ -171,24 +205,20 @@ async function api(path, opts){
   if(!r.ok) throw new Error(d.error || ('HTTP '+r.status));
   return d;
 }
-
-async function logout(){
-  await fetch('/api/logout', {method:'POST', credentials:'include'}).catch(()=>{});
-  window.location.href = '/login.html';
-}
-
-function fmtMoney(n){
-  return '$'+Number(n||0).toLocaleString('en-US',{maximumFractionDigits:0});
-}
+async function logout(){ await fetch('/api/logout', {method:'POST', credentials:'include'}).catch(()=>{}); window.location.href = '/login.html'; }
+function fmtMoney(n){ return '$'+Number(n||0).toLocaleString('en-US',{maximumFractionDigits:0}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function loadAll(){
-  const yA = document.getElementById('yearA').value;
-  const yB = document.getElementById('yearB').value;
+  YEAR_A = document.getElementById('yearA').value;
+  YEAR_B = document.getElementById('yearB').value;
   document.getElementById('loading').style.display='block';
   document.getElementById('content').style.display='none';
+  selectedSources.clear();
   try{
-    const [sumA, sumB] = await Promise.all([api('/api/summary?year='+yA), api('/api/summary?year='+yB)]);
-    render(yA, sumA, yB, sumB);
+    [SUM_A, SUM_B] = await Promise.all([api('/api/summary?label='+encodeURIComponent(YEAR_A)), api('/api/summary?label='+encodeURIComponent(YEAR_B))]);
+    render();
+    loadRefGroups();
   }catch(e){
     document.getElementById('loading').textContent = 'Could not load: '+e.message;
     return;
@@ -197,46 +227,120 @@ async function loadAll(){
   document.getElementById('content').style.display='block';
 }
 
-function render(yA, sumA, yB, sumB){
-  document.getElementById('labelA').textContent = yA;
-  document.getElementById('labelB').textContent = yB;
-  document.getElementById('numA').textContent = fmtMoney(sumA.totals.amount);
-  document.getElementById('numB').textContent = fmtMoney(sumB.totals.amount);
-  document.getElementById('metaA').textContent = sumA.totals.count.toLocaleString()+' gifts · '+sumA.totals.donors.toLocaleString()+' donors · avg '+fmtMoney(sumA.totals.avg_gift);
-  document.getElementById('metaB').textContent = sumB.totals.count.toLocaleString()+' gifts · '+sumB.totals.donors.toLocaleString()+' donors · avg '+fmtMoney(sumB.totals.avg_gift);
-
-  const max = Math.max(sumA.totals.amount, sumB.totals.amount, 1);
-  document.getElementById('deltaFill').style.width = (Math.min(sumA.totals.amount,sumB.totals.amount)/max*100)+'%';
-  const diff = sumA.totals.amount - sumB.totals.amount;
-  const pct = sumB.totals.amount ? (diff/sumB.totals.amount*100) : 0;
-  const pctEl = document.getElementById('deltaPct');
-  pctEl.textContent = (diff>=0?'▲ ':'▼ ')+Math.abs(pct).toFixed(1)+'% vs '+yB+' ('+(diff>=0?'+':'')+fmtMoney(diff)+')';
-  pctEl.className = 'delta-pct '+(diff>=0?'up':'down');
-
-  document.getElementById('sourceHeaderA').textContent = 'By source — '+yA;
-  document.getElementById('sourceHeaderB').textContent = 'By source — '+yB;
-  document.getElementById('teamHeaderA').textContent = 'Top teams — '+yA;
-  document.getElementById('teamHeaderB').textContent = 'Top teams — '+yB;
-
-  fillTable('sourceA', sumA.by_source, 'source');
-  fillTable('sourceB', sumB.by_source, 'source');
-  fillTable('teamA', sumA.by_team, 'team');
-  fillTable('teamB', sumB.by_team, 'team');
+function segCard(title, a, b){
+  return '<div class="seg-card"><div class="seg-title">'+esc(title)+'</div>'
+    + '<div class="seg-row"><span class="yr">'+esc(YEAR_A)+'</span><span>'+a.n.toLocaleString()+' gifts</span><span class="amt">'+fmtMoney(a.total)+'</span></div>'
+    + '<div class="seg-row"><span class="yr">'+esc(YEAR_B)+'</span><span>'+b.n.toLocaleString()+' gifts</span><span class="amt">'+fmtMoney(b.total)+'</span></div>'
+    + '</div>';
 }
 
-function fillTable(elId, rows, key){
+function render(){
+  document.getElementById('labelA').textContent = YEAR_A;
+  document.getElementById('labelB').textContent = YEAR_B;
+  document.getElementById('numA').textContent = fmtMoney(SUM_A.totals.amount);
+  document.getElementById('numB').textContent = fmtMoney(SUM_B.totals.amount);
+  document.getElementById('metaA').textContent = SUM_A.totals.count.toLocaleString()+' gifts · '+SUM_A.totals.donors.toLocaleString()+' donors · avg '+fmtMoney(SUM_A.totals.avg_gift);
+  document.getElementById('metaB').textContent = SUM_B.totals.count.toLocaleString()+' gifts · '+SUM_B.totals.donors.toLocaleString()+' donors · avg '+fmtMoney(SUM_B.totals.avg_gift);
+
+  const max = Math.max(SUM_A.totals.amount, SUM_B.totals.amount, 1);
+  document.getElementById('deltaFill').style.width = (Math.min(SUM_A.totals.amount,SUM_B.totals.amount)/max*100)+'%';
+  const diff = SUM_A.totals.amount - SUM_B.totals.amount;
+  const pct = SUM_B.totals.amount ? (diff/SUM_B.totals.amount*100) : 0;
+  const pctEl = document.getElementById('deltaPct');
+  pctEl.textContent = (diff>=0?'▲ ':'▼ ')+Math.abs(pct).toFixed(1)+'% ('+YEAR_A+' vs '+YEAR_B+', '+(diff>=0?'+':'')+fmtMoney(diff)+')';
+  pctEl.className = 'delta-pct '+(diff>=0?'up':'down');
+
+  const s = document.getElementById('segGrid');
+  s.innerHTML = segCard('Team + Ref', SUM_A.segments.team_and_ref, SUM_B.segments.team_and_ref)
+    + segCard('Team, No Ref', SUM_A.segments.team_no_ref, SUM_B.segments.team_no_ref)
+    + segCard('No Team, Ref', SUM_A.segments.no_team_ref, SUM_B.segments.no_team_ref)
+    + segCard('No Team, No Ref', SUM_A.segments.no_team_no_ref, SUM_B.segments.no_team_no_ref);
+  document.getElementById('gatewayGrid').innerHTML = segCard('Online', SUM_A.segments.online, SUM_B.segments.online)
+    + segCard('Offline', SUM_A.segments.offline, SUM_B.segments.offline);
+
+  renderCompareTable('sourceTable', SUM_A.by_source, SUM_B.by_source, 'source', true);
+  renderCompareTable('teamTable', SUM_A.by_team, SUM_B.by_team, 'team', false);
+
+  const qs = (label) => '?label='+encodeURIComponent(label);
+  document.getElementById('exportDonationsA').href = '/api/export/donations.csv'+qs(YEAR_A);
+  document.getElementById('exportDonationsB').href = '/api/export/donations.csv'+qs(YEAR_B);
+  document.getElementById('exportSourceA').href = '/api/export/summary.csv'+qs(YEAR_A)+'&type=source';
+  document.getElementById('exportSourceB').href = '/api/export/summary.csv'+qs(YEAR_B)+'&type=source';
+  document.getElementById('exportTeamA').href = '/api/export/summary.csv'+qs(YEAR_A)+'&type=team';
+  document.getElementById('exportTeamB').href = '/api/export/summary.csv'+qs(YEAR_B)+'&type=team';
+}
+
+// Merges two breakdown arrays (by source or by team) into one row set keyed
+// by name, sorted by combined total — a real side-by-side, not two
+// separate top-10 lists that can't be compared directly.
+function renderCompareTable(elId, rowsA, rowsB, key, selectable){
+  const map = new Map();
+  for(const r of (rowsA||[])) map.set(r[key], {name:r[key], aN:r.count, aAmt:r.amount, bN:0, bAmt:0});
+  for(const r of (rowsB||[])){
+    const ex = map.get(r[key]);
+    if(ex){ ex.bN = r.count; ex.bAmt = r.amount; }
+    else map.set(r[key], {name:r[key], aN:0, aAmt:0, bN:r.count, bAmt:r.amount});
+  }
+  const rows = [...map.values()].sort((x,y)=>(y.aAmt+y.bAmt)-(x.aAmt+x.bAmt));
   const el = document.getElementById(elId);
-  if(!rows || !rows.length){ el.innerHTML = '<tr><td colspan="3" style="color:var(--ink-dim)">No data yet.</td></tr>'; return; }
-  el.innerHTML = rows.slice(0,10).map(r =>
-    '<tr><td>'+(r[key]||'—')+'</td><td class="num">'+r.count.toLocaleString()+'</td><td class="num">'+fmtMoney(r.amount)+'</td></tr>'
-  ).join('');
+  if(!rows.length){ el.innerHTML = '<tr><td colspan="6" style="color:var(--ink-dim)">No data yet.</td></tr>'; return; }
+  el.innerHTML = rows.map(r => {
+    const checkbox = selectable ? '<td><input type="checkbox" onchange="toggleSourceSelect(\''+esc(r.name).replace(/'/g,"\\'")+'\',this.checked)"></td>' : '';
+    return '<tr>'+checkbox+'<td>'+esc(r.name||'—')+'</td>'
+      + '<td class="num'+(r.aN?'':' dim')+'">'+r.aN.toLocaleString()+'</td><td class="num'+(r.aAmt?'':' dim')+'">'+fmtMoney(r.aAmt)+'</td>'
+      + '<td class="num'+(r.bN?'':' dim')+'">'+r.bN.toLocaleString()+'</td><td class="num'+(r.bAmt?'':' dim')+'">'+fmtMoney(r.bAmt)+'</td>'
+      + '</tr>';
+  }).join('');
+}
+
+function toggleSourceSelect(name, checked){
+  if(checked) selectedSources.add(name); else selectedSources.delete(name);
+  document.getElementById('combineBtn').disabled = selectedSources.size < 2;
+}
+
+function openCombineModal(){
+  document.getElementById('combineList').innerHTML = [...selectedSources].map(s=>esc(s)).join('<br>');
+  document.getElementById('combineLabel').value = '';
+  document.getElementById('combineModalBg').style.display = 'flex';
+}
+function closeCombineModal(){ document.getElementById('combineModalBg').style.display = 'none'; }
+async function submitCombine(){
+  const label = document.getElementById('combineLabel').value.trim();
+  if(!label) return alert('Give the combined group a label first.');
+  try{
+    await api('/api/ref-groups', {method:'POST', body: JSON.stringify({label, sources:[...selectedSources]})});
+    closeCombineModal();
+    selectedSources.clear();
+    document.getElementById('combineBtn').disabled = true;
+    loadAll();
+  }catch(e){ alert('Could not combine: '+e.message); }
+}
+
+async function loadRefGroups(){
+  const el = document.getElementById('refGroupsList');
+  try{
+    const d = await api('/api/ref-groups');
+    if(!d.rows.length){ el.textContent = 'None yet — select two or more sources above and click "Combine selected."'; return; }
+    el.innerHTML = d.rows.map(g =>
+      '<div style="display:flex;align-items:center;gap:.6rem;padding:.4rem 0;border-bottom:1px solid var(--line);">'
+      + '<strong style="font-size:.85rem;">'+esc(g.label)+'</strong>'
+      + '<span style="color:var(--ink-dim);font-family:IBM Plex Mono,monospace;font-size:.72rem;">'+g.sources.map(esc).join(', ')+'</span>'
+      + '<span style="flex:1"></span>'
+      + '<button class="btn ghost tiny" onclick="deleteRefGroup('+g.id+')">Remove</button>'
+      + '</div>'
+    ).join('');
+  }catch(e){ el.textContent = e.message; }
+}
+async function deleteRefGroup(id){
+  try{ await api('/api/ref-groups/'+id, {method:'DELETE'}); loadAll(); }
+  catch(e){ alert(e.message); }
 }
 
 function toggleSync(){
   const p = document.getElementById('syncPanel');
   const show = p.style.display === 'none';
   p.style.display = show ? 'block' : 'none';
-  if(show) loadSyncStatus();
+  if(show){ loadSyncStatus(); loadLabels(); }
 }
 
 async function loadSyncStatus(){
@@ -249,17 +353,16 @@ async function loadSyncStatus(){
       const mins = j.last_run_started_at ? Math.round((Date.now()-new Date(j.last_run_started_at).getTime())/60000) : null;
       return '<div style="display:flex;align-items:center;gap:.7rem;padding:.5rem 0;border-bottom:1px solid var(--line);flex-wrap:wrap;">'
         + '<span class="status-pill '+j.status+'">'+j.status+'</span>'
-        + '<span style="font-family:IBM Plex Mono,monospace;font-size:.78rem;color:var(--ink-dim);">org '+j.org_id+' · campaign '+j.campaign_id+' · '+j.year+'</span>'
+        + '<span style="font-family:IBM Plex Mono,monospace;font-size:.78rem;color:var(--ink-dim);">org '+j.org_id+' · campaign '+j.campaign_id+' · label '+j.year+'</span>'
         + (mins!=null ? '<span style="font-family:IBM Plex Mono,monospace;font-size:.72rem;color:var(--ink-dim);">'+mins+'m ago</span>' : '')
         + (j.last_added!=null ? '<span style="font-family:IBM Plex Mono,monospace;font-size:.72rem;color:var(--ink-dim);">+'+j.last_added+' new</span>' : '')
         + '<span style="flex:1"></span>'
-        + '<button class="btn ghost small" onclick="runSync(\''+j.org_id+'\',\''+j.campaign_id+'\',\''+j.year+'\')">Sync now</button>'
-        + (j.status==='running' ? '<button class="btn ghost small" onclick="resetSync(\''+j.org_id+'\',\''+j.campaign_id+'\',\''+j.year+'\')">Reset</button>' : '')
+        + '<button class="btn ghost tiny" onclick="runSync(\''+j.org_id+'\',\''+j.campaign_id+'\',\''+j.year+'\')">Sync now</button>'
+        + (j.status==='running' ? '<button class="btn ghost tiny" onclick="resetSync(\''+j.org_id+'\',\''+j.campaign_id+'\',\''+j.year+'\')">Reset</button>' : '')
         + '</div>';
     }).join('');
   }catch(e){ el.innerHTML = '<div class="msg err">'+e.message+'</div>'; }
 }
-
 async function runSync(org, campaign, year){
   try{ await api('/api/sync?org='+org+'&campaign='+campaign+'&year='+year, {method:'POST'}); await loadSyncStatus(); }
   catch(e){ alert('Sync failed to start: '+e.message); }
@@ -269,17 +372,49 @@ async function resetSync(org, campaign, year){
   catch(e){ alert('Reset failed: '+e.message); }
 }
 
+async function loadLabels(){
+  const el = document.getElementById('labelRows');
+  try{
+    const d = await api('/api/campaign-labels');
+    if(!d.rows.length){ el.innerHTML = '<div class="msg">No campaigns synced yet.</div>'; return; }
+    el.innerHTML = d.rows.map(r =>
+      '<div style="display:flex;gap:.6rem;align-items:center;padding:.3rem 0;font-family:IBM Plex Mono,monospace;font-size:.78rem;">'
+      + '<span style="color:var(--ink-dim);">campaign '+esc(r.campaign_id)+'</span><span>→</span><strong>'+esc(r.label)+'</strong></div>'
+    ).join('');
+    populateYearSelectors(d.rows.map(r=>r.label));
+  }catch(e){ el.textContent = e.message; }
+}
+async function saveLabel(){
+  const campaign_id = document.getElementById('newLabelCampaign').value.trim();
+  const label = document.getElementById('newLabelName').value.trim();
+  if(!campaign_id || !label) return;
+  try{ await api('/api/campaign-labels', {method:'POST', body: JSON.stringify({campaign_id, label})}); await loadLabels(); loadAll(); }
+  catch(e){ alert(e.message); }
+}
+
+function populateYearSelectors(labels){
+  const uniq = [...new Set(labels)].concat(['all']);
+  for(const id of ['yearA','yearB']){
+    const sel = document.getElementById(id);
+    const current = sel.value;
+    sel.innerHTML = uniq.map(y=>'<option value="'+esc(y)+'">'+esc(y)+'</option>').join('');
+    if(uniq.includes(current)) sel.value = current;
+  }
+}
+
 async function boot(){
   try{
     const me = await fetch('/api/me', {credentials:'include'}).then(r=>r.json());
     if(!me.loggedIn){ window.location.href='/login.html'; return; }
   }catch(e){ window.location.href='/login.html'; return; }
   document.getElementById('app').style.display='block';
-  const yA = document.getElementById('yearA'), yB = document.getElementById('yearB');
-  const years = ['2026','2025','2024','all'];
-  yA.innerHTML = years.map(y=>'<option value="'+y+'">'+y+'</option>').join('');
-  yB.innerHTML = years.map(y=>'<option value="'+y+'">'+y+'</option>').join('');
-  yA.value='2026'; yB.value='2025';
+  try{
+    const d = await api('/api/campaign-labels');
+    const labels = d.rows.map(r=>r.label);
+    populateYearSelectors(labels.length ? labels : ['2026','2025']);
+    document.getElementById('yearA').value = labels[0] || '2026';
+    document.getElementById('yearB').value = labels[1] || '2025';
+  }catch(e){}
   loadAll();
 }
 boot();
