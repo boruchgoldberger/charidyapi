@@ -56,6 +56,7 @@ async function ensureSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS donations (
       donation_id TEXT PRIMARY KEY,
+      campaign_id TEXT,
       campaign_year TEXT,
       donated_at TIMESTAMPTZ,
       firstname TEXT,
@@ -73,7 +74,9 @@ async function ensureSchema() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE donations ADD COLUMN IF NOT EXISTS campaign_id TEXT`).catch(()=>{});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_donations_year ON donations(campaign_year)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_donations_campaign ON donations(campaign_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_donations_team ON donations(team)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_donations_utm ON donations(utm_source)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_donations_email_norm ON donations(email_norm)`);
@@ -90,8 +93,37 @@ async function ensureSchema() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // The real fix for "which donations belong to which season" — every
+  // donation now stores its actual campaign_id (from Charidy itself, not a
+  // hand-typed label). A campaign gets a human label ("2026", "2025") once,
+  // here, instead of being retyped at sync time where a mistake silently
+  // merges two seasons together (exactly what happened before this).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS campaign_labels (
+      campaign_id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  // Lets you combine several raw utm_source values (e.g. case-variants, or
+  // several email blasts) under one reporting label, without altering the
+  // underlying donation rows.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ref_groups (
+      id SERIAL PRIMARY KEY,
+      label TEXT NOT NULL,
+      sources TEXT[] NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
 }
 function syncKey(org, campaign, year) { return `${org}:${campaign}:${year}`; }
+async function getCampaignLabels() {
+  const rows = (await pool.query('SELECT * FROM campaign_labels')).rows;
+  const byId = {}, byLabel = {};
+  for (const r of rows) { byId[r.campaign_id] = r.label; byLabel[r.label] = r.campaign_id; }
+  return { byId, byLabel };
+}
 
 // ── Login ───────────────────────────────────────────────────────────────
 // Constant-time-ish comparison so a wrong password doesn't leak timing info.
@@ -243,7 +275,7 @@ async function fetchTeams(orgId, campaignId, force) {
   return map;
 }
 
-function charidyMap(item, year, teamNameMap) {
+function charidyMap(item, year, teamNameMap, campaignId) {
   const a = (item && item.attributes) ? Object.assign({}, item.attributes, { id: (item.id != null ? item.id : item.attributes.id) }) : (item || {});
   const email = _label(_deepPick(a, ['email', 'donor_email', 'billing_email', 'payer_email', 'donator_email'])) || '';
   const phone = _label(_deepPick(a, ['phone', 'donor_phone', 'billing_phone', 'phone_number', 'mobile', 'donator_phone'])) || '';
@@ -269,6 +301,7 @@ function charidyMap(item, year, teamNameMap) {
   const gateway = (offlineSource && String(offlineSource).trim()) ? 'offline' : (bankName || 'online');
   return {
     donation_id: String(_label(_deepPick(a, ['id', 'donation_id', 'uuid', 'transaction_id', '_id'])) || ('charidy-' + Math.random().toString(36).slice(2))),
+    campaign_id: String(campaignId),
     campaign_year: year,
     donated_at: charidyDate(_deepPick(a, ['date', 'created_at', 'donation_date', 'created', 'time', 'donated_at', 'datetime', 'payment_date', 'timestamp'])),
     firstname: fn || (nameWhole ? String(nameWhole).split(' ')[0] : null),
@@ -285,14 +318,14 @@ function charidyMap(item, year, teamNameMap) {
 
 async function upsertDonation(d) {
   await pool.query(`
-    INSERT INTO donations (donation_id, campaign_year, donated_at, firstname, lastname, email, email_norm, phone_norm, amount, currency, utm_source, team, status, display_name, gateway, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, NOW())
+    INSERT INTO donations (donation_id, campaign_id, campaign_year, donated_at, firstname, lastname, email, email_norm, phone_norm, amount, currency, utm_source, team, status, display_name, gateway, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, NOW())
     ON CONFLICT (donation_id) DO UPDATE SET
-      campaign_year=EXCLUDED.campaign_year, donated_at=EXCLUDED.donated_at, firstname=EXCLUDED.firstname,
+      campaign_id=EXCLUDED.campaign_id, campaign_year=EXCLUDED.campaign_year, donated_at=EXCLUDED.donated_at, firstname=EXCLUDED.firstname,
       lastname=EXCLUDED.lastname, email=EXCLUDED.email, email_norm=EXCLUDED.email_norm, phone_norm=EXCLUDED.phone_norm,
       amount=EXCLUDED.amount, currency=EXCLUDED.currency, utm_source=EXCLUDED.utm_source, team=EXCLUDED.team,
       status=EXCLUDED.status, display_name=EXCLUDED.display_name, gateway=EXCLUDED.gateway, updated_at=NOW()
-  `, [d.donation_id, d.campaign_year, d.donated_at, d.firstname, d.lastname, d.email, d.email_norm, d.phone_norm,
+  `, [d.donation_id, d.campaign_id, d.campaign_year, d.donated_at, d.firstname, d.lastname, d.email, d.email_norm, d.phone_norm,
       d.amount, d.currency, d.utm_source, d.team, d.status, d.display_name, d.gateway]);
 }
 
@@ -314,6 +347,13 @@ async function runSync({ orgId, campaignId, year, mode }) {
   let pulled = 0, imported = 0, added = 0;
   try {
     await charidyLogin(true);
+    // Auto-create a default label the first time this campaign is synced —
+    // editable anytime afterward without needing to re-sync anything, since
+    // the real donation rows are tagged by campaign_id, not by this label.
+    await pool.query(
+      `INSERT INTO campaign_labels (campaign_id, label) VALUES ($1,$2) ON CONFLICT (campaign_id) DO NOTHING`,
+      [String(campaignId), year]
+    );
     const teamMap = await fetchTeams(orgId, campaignId).catch(() => ({}));
     let page = 1;
     const limit = 200;
@@ -324,7 +364,7 @@ async function runSync({ orgId, campaignId, year, mode }) {
       if (!rows.length) break;
       pulled += rows.length;
       for (const raw of rows) {
-        const mapped = charidyMap(raw, year, teamMap);
+        const mapped = charidyMap(raw, year, teamMap, campaignId);
         const existing = await pool.query('SELECT donation_id FROM donations WHERE donation_id=$1', [mapped.donation_id]);
         if (mode === 'incremental' && existing.rows.length) { keepGoing = false; break; } // newest-first: hit known donation, stop
         await upsertDonation(mapped);
@@ -439,66 +479,242 @@ app.post('/api/autosync', requireToken, async (req, res) => {
 });
 
 // GET /api/donations?year=&team=&q=&limit=&refs_only=1
+// Resolves ?label=2026 (preferred) or the old ?year= alias to an actual
+// campaign_id via campaign_labels, so filtering is based on which real
+// Charidy campaign a donation came from — not a hand-typed tag that can
+// silently merge two seasons together.
+async function resolveCampaignWhere(req, paramsStart) {
+  const label = (req.query.label || req.query.year || '').trim();
+  if (!label || label === 'all') return { clause: '', params: [] };
+  const { byLabel } = await getCampaignLabels();
+  const campaignId = byLabel[label];
+  if (campaignId) return { clause: `campaign_id = $${paramsStart}`, params: [campaignId] };
+  // Fallback for any rows synced before campaign_id existed on this table.
+  return { clause: `campaign_year = $${paramsStart}`, params: [label] };
+}
+
+async function getRefGroupMap() {
+  const rows = (await pool.query('SELECT * FROM ref_groups')).rows;
+  const map = {}; // raw source (lowercased) -> group label
+  for (const g of rows) for (const s of g.sources) map[String(s).toLowerCase()] = g.label;
+  return map;
+}
+// SQL CASE expression collapsing raw utm_source values into their group
+// label where one's been defined, otherwise leaving the raw value as-is.
+function refGroupCaseSQL(refGroupRows) {
+  if (!refGroupRows.length) return `COALESCE(utm_source,'(direct)')`;
+  const cases = refGroupRows.map(g =>
+    `WHEN LOWER(utm_source) IN (${g.sources.map(s => `'${String(s).toLowerCase().replace(/'/g, "''")}'`).join(',')}) THEN '${g.label.replace(/'/g, "''")}'`
+  ).join(' ');
+  return `CASE ${cases} ELSE COALESCE(utm_source,'(direct)') END`;
+}
+
 app.get('/api/donations', requireToken, async (req, res) => {
   try {
     await ensureSchema();
-    const where = [], params = [];
-    const year = (req.query.year || '').trim();
-    if (year && year !== 'all') { params.push(year); where.push(`campaign_year=$${params.length}`); }
+    const camp = await resolveCampaignWhere(req, 1);
+    const where = camp.clause ? [camp.clause] : [];
+    const params = [...camp.params];
     const team = (req.query.team || '').trim();
-    if (team) { params.push('%' + team.toLowerCase() + '%'); where.push(`LOWER(COALESCE(team,'')) LIKE $${params.length}`); }
+    if (team === '__none__') where.push(`(team IS NULL OR team = '')`);
+    else if (team) { params.push('%' + team.toLowerCase() + '%'); where.push(`LOWER(COALESCE(team,'')) LIKE $${params.length}`); }
+    const ref = (req.query.ref || '').trim();
+    if (ref === '__none__') where.push(`(utm_source IS NULL OR utm_source = '')`);
+    else if (ref) { params.push('%' + ref.toLowerCase() + '%'); where.push(`LOWER(COALESCE(utm_source,'')) LIKE $${params.length}`); }
+    const gateway = (req.query.gateway || '').trim();
+    if (gateway) { params.push(gateway); where.push(`gateway = $${params.length}`); }
     const q = (req.query.q || '').trim().toLowerCase();
     if (q) {
       params.push('%' + q + '%'); const i = params.length;
       where.push(`(LOWER(COALESCE(display_name,'')||' '||COALESCE(firstname,'')||' '||COALESCE(lastname,'')) LIKE $${i} OR LOWER(COALESCE(email,'')) LIKE $${i} OR LOWER(COALESCE(utm_source,'')) LIKE $${i})`);
     }
-    if (req.query.refs_only === '1') where.push(`utm_source IS NOT NULL AND utm_source NOT IN ('bonei','c_whatsapp')`);
     const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
-    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 2000);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 5000);
     const rows = (await pool.query(`SELECT * FROM donations ${clause} ORDER BY donated_at DESC LIMIT ${limit}`, params)).rows;
     const totals = (await pool.query(`SELECT COUNT(*) n, COALESCE(SUM(amount),0) total FROM donations ${clause}`, params)).rows[0];
     res.json({ ok: true, rows, count: Number(totals.n), total_amount: Number(totals.total) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/summary?year=2025 — aggregate totals + breakdowns, the data a
-// comparison dashboard actually needs (not raw rows).
+// GET /api/summary?label=2026 — aggregate totals + full breakdowns +
+// segment cross-tabs (team/ref/gateway), the data a comparison dashboard
+// actually needs. No caps on the lists — CSV export needs everything, and
+// realistically there aren't thousands of distinct sources or teams.
 app.get('/api/summary', requireToken, async (req, res) => {
   try {
     await ensureSchema();
-    const year = (req.query.year || '').trim();
-    const where = year && year !== 'all' ? 'WHERE campaign_year = $1' : '';
-    const params = year && year !== 'all' ? [year] : [];
+    const camp = await resolveCampaignWhere(req, 1);
+    const whereSQL = camp.clause ? 'WHERE ' + camp.clause : '';
+    const andSQL = camp.clause ? 'WHERE ' + camp.clause + ' AND' : 'WHERE';
+    const params = camp.params;
+    const refGroupRows = (await pool.query('SELECT * FROM ref_groups')).rows;
+    const sourceExpr = refGroupCaseSQL(refGroupRows);
+
     const totals = (await pool.query(
-      `SELECT COUNT(*) n, COALESCE(SUM(amount),0) total, COALESCE(AVG(amount),0) avg_gift,
-              COUNT(DISTINCT email_norm) donors
-         FROM donations ${where}`, params)).rows[0];
+      `SELECT COUNT(*) n, COALESCE(SUM(amount),0) total, COALESCE(AVG(amount),0) avg_gift, COUNT(DISTINCT email_norm) donors
+         FROM donations ${whereSQL}`, params)).rows[0];
     const bySource = (await pool.query(
-      `SELECT COALESCE(utm_source,'(direct)') AS source, COUNT(*) n, COALESCE(SUM(amount),0) total
-         FROM donations ${where} GROUP BY 1 ORDER BY total DESC LIMIT 25`, params)).rows;
+      `SELECT ${sourceExpr} AS source, COUNT(*) n, COALESCE(SUM(amount),0) total
+         FROM donations ${whereSQL} GROUP BY 1 ORDER BY total DESC`, params)).rows;
     const byTeam = (await pool.query(
       `SELECT COALESCE(team,'(no team)') AS team, COUNT(*) n, COALESCE(SUM(amount),0) total
-         FROM donations ${where} GROUP BY 1 ORDER BY total DESC LIMIT 25`, params)).rows;
+         FROM donations ${whereSQL} GROUP BY 1 ORDER BY total DESC`, params)).rows;
     const byGateway = (await pool.query(
       `SELECT COALESCE(gateway,'unknown') AS gateway, COUNT(*) n, COALESCE(SUM(amount),0) total
-         FROM donations ${where} GROUP BY 1 ORDER BY total DESC`, params)).rows;
-    const dayWhereParts = [];
-    if (year && year !== 'all') dayWhereParts.push('campaign_year = $1');
-    dayWhereParts.push('donated_at IS NOT NULL');
-    const dayWhere = 'WHERE ' + dayWhereParts.join(' AND ');
+         FROM donations ${whereSQL} GROUP BY 1 ORDER BY total DESC`, params)).rows;
+    // Segment cross-tab: has a team? has a ref? — the 4 combinations, plus
+    // online/offline split within each, exactly as requested.
+    const segRows = (await pool.query(
+      `SELECT
+         (team IS NOT NULL AND team <> '') AS has_team,
+         (utm_source IS NOT NULL AND utm_source <> '') AS has_ref,
+         COALESCE(gateway,'unknown') AS gateway,
+         COUNT(*) n, COALESCE(SUM(amount),0) total
+       FROM donations ${whereSQL}
+       GROUP BY 1,2,3`, params)).rows;
+    const segments = { team_and_ref: {n:0,total:0}, team_no_ref: {n:0,total:0}, no_team_ref: {n:0,total:0}, no_team_no_ref: {n:0,total:0},
+                        online: {n:0,total:0}, offline: {n:0,total:0} };
+    for (const r of segRows) {
+      const properKey = r.has_team && r.has_ref ? 'team_and_ref' : r.has_team && !r.has_ref ? 'team_no_ref' : !r.has_team && r.has_ref ? 'no_team_ref' : 'no_team_no_ref';
+      segments[properKey].n += Number(r.n); segments[properKey].total += Number(r.total);
+      if (r.gateway === 'offline') { segments.offline.n += Number(r.n); segments.offline.total += Number(r.total); }
+      else { segments.online.n += Number(r.n); segments.online.total += Number(r.total); }
+    }
     const byDay = (await pool.query(
       `SELECT DATE(donated_at) AS day, COUNT(*) n, COALESCE(SUM(amount),0) total
-         FROM donations ${dayWhere} GROUP BY 1 ORDER BY 1`, params)).rows;
+         FROM donations ${andSQL} donated_at IS NOT NULL GROUP BY 1 ORDER BY 1`, params)).rows;
     res.json({
-      ok: true, year: year || 'all',
+      ok: true, label: req.query.label || req.query.year || 'all',
       totals: { count: Number(totals.n), amount: Number(totals.total), avg_gift: Number(totals.avg_gift), donors: Number(totals.donors) },
       by_source: bySource.map(r => ({ source: r.source, count: Number(r.n), amount: Number(r.total) })),
       by_team: byTeam.map(r => ({ team: r.team, count: Number(r.n), amount: Number(r.total) })),
       by_gateway: byGateway.map(r => ({ gateway: r.gateway, count: Number(r.n), amount: Number(r.total) })),
+      segments,
       by_day: byDay.map(r => ({ day: r.day, count: Number(r.n), amount: Number(r.total) }))
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ── Campaign labels — rename which real campaign means "2026" etc. ─────
+app.get('/api/campaign-labels', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    const rows = (await pool.query('SELECT * FROM campaign_labels ORDER BY label')).rows;
+    res.json({ ok: true, rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/campaign-labels', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    const { campaign_id, label } = req.body;
+    if (!campaign_id || !label) return res.status(400).json({ error: 'campaign_id and label required.' });
+    await pool.query(
+      `INSERT INTO campaign_labels (campaign_id, label, updated_at) VALUES ($1,$2,NOW())
+       ON CONFLICT (campaign_id) DO UPDATE SET label=EXCLUDED.label, updated_at=NOW()`,
+      [String(campaign_id), String(label)]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Ref groups — combine several raw utm_source values under one label ─
+app.get('/api/ref-groups', requireToken, async (req, res) => {
+  try { await ensureSchema(); const rows = (await pool.query('SELECT * FROM ref_groups ORDER BY label')).rows; res.json({ ok: true, rows }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/ref-groups', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    const { label, sources } = req.body;
+    if (!label || !Array.isArray(sources) || !sources.length) return res.status(400).json({ error: 'label and a non-empty sources array required.' });
+    const r = await pool.query('INSERT INTO ref_groups (label, sources) VALUES ($1,$2) RETURNING id', [label, sources]);
+    res.json({ ok: true, id: r.rows[0].id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/ref-groups/:id', requireToken, async (req, res) => {
+  try { await ensureSchema(); await pool.query('DELETE FROM ref_groups WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── CSV export — everything, since the org's SMS tool (TextMagic) has API
+// limits that make exporting and working from spreadsheets the practical
+// path for now. ──────────────────────────────────────────────────────────
+function toCSV(rows, columns) {
+  const esc = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const header = columns.map(c => c.header).join(',');
+  const body = rows.map(r => columns.map(c => esc(typeof c.value === 'function' ? c.value(r) : r[c.value])).join(',')).join('\n');
+  return header + '\n' + body;
+}
+
+app.get('/api/export/donations.csv', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    const camp = await resolveCampaignWhere(req, 1);
+    const where = camp.clause ? [camp.clause] : [];
+    const params = [...camp.params];
+    const team = (req.query.team || '').trim();
+    if (team === '__none__') where.push(`(team IS NULL OR team = '')`);
+    else if (team) { params.push('%' + team.toLowerCase() + '%'); where.push(`LOWER(COALESCE(team,'')) LIKE $${params.length}`); }
+    const ref = (req.query.ref || '').trim();
+    if (ref === '__none__') where.push(`(utm_source IS NULL OR utm_source = '')`);
+    else if (ref) { params.push('%' + ref.toLowerCase() + '%'); where.push(`LOWER(COALESCE(utm_source,'')) LIKE $${params.length}`); }
+    const gateway = (req.query.gateway || '').trim();
+    if (gateway) { params.push(gateway); where.push(`gateway = $${params.length}`); }
+    const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const rows = (await pool.query(`SELECT * FROM donations ${clause} ORDER BY donated_at DESC`, params)).rows;
+    const csv = toCSV(rows, [
+      { header: 'Donation ID', value: 'donation_id' }, { header: 'Campaign ID', value: 'campaign_id' },
+      { header: 'Date', value: r => r.donated_at ? new Date(r.donated_at).toISOString() : '' },
+      { header: 'First Name', value: 'firstname' }, { header: 'Last Name', value: 'lastname' },
+      { header: 'Email', value: 'email' }, { header: 'Amount', value: 'amount' }, { header: 'Currency', value: 'currency' },
+      { header: 'Ref', value: 'utm_source' }, { header: 'Team', value: 'team' }, { header: 'Status', value: 'status' },
+      { header: 'Gateway', value: 'gateway' }, { header: 'Display Name', value: 'display_name' }
+    ]);
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="donations-${req.query.label||req.query.year||'all'}.csv"`);
+    res.send(csv);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/export/summary.csv', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    const type = (req.query.type || 'source') === 'team' ? 'team' : 'source';
+    const camp = await resolveCampaignWhere(req, 1);
+    const whereSQL = camp.clause ? 'WHERE ' + camp.clause : '';
+    const params = camp.params;
+    let rows, columns;
+    if (type === 'source') {
+      const refGroupRows = (await pool.query('SELECT * FROM ref_groups')).rows;
+      rows = (await pool.query(`SELECT ${refGroupCaseSQL(refGroupRows)} AS source, COUNT(*) n, COALESCE(SUM(amount),0) total FROM donations ${whereSQL} GROUP BY 1 ORDER BY total DESC`, params)).rows;
+      columns = [{ header: 'Source', value: 'source' }, { header: 'Gifts', value: 'n' }, { header: 'Raised', value: 'total' }];
+    } else {
+      rows = (await pool.query(`SELECT COALESCE(team,'(no team)') AS team, COUNT(*) n, COALESCE(SUM(amount),0) total FROM donations ${whereSQL} GROUP BY 1 ORDER BY total DESC`, params)).rows;
+      columns = [{ header: 'Team', value: 'team' }, { header: 'Gifts', value: 'n' }, { header: 'Raised', value: 'total' }];
+    }
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="${type}-breakdown-${req.query.label||req.query.year||'all'}.csv"`);
+    res.send(toCSV(rows, columns));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Wipes all donation rows so a clean re-sync can rebuild them with correct
+// campaign_id tagging — needed once, to fix data from before that column
+// existed (when two seasons got merged under one hand-typed "year" label).
+app.post('/api/admin/wipe-donations', requireToken, async (req, res) => {
+  try {
+    await ensureSchema();
+    if (req.body?.confirm !== 'WIPE') return res.status(400).json({ error: 'Pass {"confirm":"WIPE"} to actually do this — it deletes every donation row (safe: re-syncing rebuilds them from Charidy).' });
+    const r = await pool.query('DELETE FROM donations');
+    res.json({ ok: true, deleted: r.rowCount });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
 
 // POST /api/sync/reset — clears a sync job stuck at "running" (e.g. from a
 // deploy/restart killing it mid-run) so it can be retried. Only allows
