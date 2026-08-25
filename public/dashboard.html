@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agudah Campaign Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #12151c;
+    --panel: #1a1f29;
+    --panel-2: #212836;
+    --line: #2c3240;
+    --ink: #eceef2;
+    --ink-dim: #93989f;
+    --gold: #c9a227;
+    --gold-dim: #7d6a2c;
+    --teal: #5fa8a0;
+    --clay: #c15a3f;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 5rem;}
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--gold); margin:0 0 .4rem;
+  }
+  h1{
+    font-family:'Fraunces',serif; font-weight:600; font-size:2.4rem; line-height:1.05;
+    margin:0 0 .3rem; letter-spacing:-.01em;
+  }
+  .sub{color:var(--ink-dim); font-size:.95rem; margin:0 0 2.2rem;}
+
+  .gate{
+    max-width:420px; margin:8rem auto; text-align:center;
+  }
+  .gate input{
+    width:100%; background:var(--panel); border:1px solid var(--line); color:var(--ink);
+    padding:.8rem 1rem; border-radius:6px; font-family:'IBM Plex Mono',monospace; font-size:.85rem;
+    margin:1rem 0;
+  }
+  .gate button, .btn{
+    background:var(--gold); color:#1a1508; border:none; padding:.7rem 1.4rem;
+    border-radius:6px; font-weight:600; font-size:.85rem; cursor:pointer; letter-spacing:.01em;
+  }
+  .btn.ghost{background:transparent; border:1px solid var(--line); color:var(--ink); }
+  .btn.small{padding:.45rem .9rem; font-size:.78rem;}
+  .btn:disabled{opacity:.5; cursor:default;}
+
+  .tally{
+    display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; margin-bottom:1rem;
+  }
+  .tally-col{padding:1.8rem 2rem; background:var(--panel);}
+  .tally-col + .tally-col{border-left:1px solid var(--line); background:var(--panel-2);}
+  .tally-label{font-family:'IBM Plex Mono',monospace; font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-dim); margin-bottom:.6rem;}
+  .tally-num{font-family:'Fraunces',serif; font-weight:700; font-size:3rem; letter-spacing:-.02em; line-height:1;}
+  .tally-num.gold{color:var(--gold);}
+  .tally-num.teal{color:var(--teal);}
+  .tally-meta{font-family:'IBM Plex Mono',monospace; font-size:.78rem; color:var(--ink-dim); margin-top:.5rem;}
+
+  .delta-bar-row{display:flex; align-items:center; gap:1rem; padding:1rem 2rem; background:var(--bg); border-bottom:1px solid var(--line); border-left:1px solid var(--line); border-right:1px solid var(--line); border-radius:0 0 12px 12px; margin-top:-1rem; margin-bottom:2rem;}
+  .delta-track{flex:1; height:8px; background:var(--panel); border-radius:4px; overflow:hidden; position:relative;}
+  .delta-fill{height:100%; background:linear-gradient(90deg,var(--gold-dim),var(--gold)); border-radius:4px;}
+  .delta-pct{font-family:'IBM Plex Mono',monospace; font-size:.85rem; font-weight:600; white-space:nowrap;}
+  .delta-pct.up{color:#7ec488;} .delta-pct.down{color:var(--clay);}
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:1.2rem; margin-bottom:2rem;}
+  @media (max-width:820px){ .grid2{grid-template-columns:1fr;} .tally{grid-template-columns:1fr;} .tally-col+.tally-col{border-left:none;border-top:1px solid var(--line);} }
+
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:1.3rem 1.4rem;}
+  .panel h3{font-family:'IBM Plex Mono',monospace; font-size:.75rem; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-dim); margin:0 0 .9rem; font-weight:500;}
+  table{width:100%; border-collapse:collapse; font-size:.85rem;}
+  th{text-align:left; font-family:'IBM Plex Mono',monospace; font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-dim); padding:.4rem .3rem; border-bottom:1px solid var(--line); font-weight:500;}
+  td{padding:.45rem .3rem; border-bottom:1px solid rgba(255,255,255,.04);}
+  td.num{font-family:'IBM Plex Mono',monospace; text-align:right; color:var(--gold);}
+  tr:last-child td{border-bottom:none;}
+
+  .toolbar{display:flex; gap:.6rem; align-items:center; margin-bottom:1.6rem; flex-wrap:wrap;}
+  .status-pill{font-family:'IBM Plex Mono',monospace; font-size:.72rem; padding:.25rem .6rem; border-radius:20px; border:1px solid var(--line); color:var(--ink-dim);}
+  .status-pill.running{color:var(--gold); border-color:var(--gold-dim);}
+  .status-pill.done{color:#7ec488;}
+  .status-pill.failed{color:var(--clay);}
+  .msg{font-family:'IBM Plex Mono',monospace; font-size:.78rem; color:var(--ink-dim); margin-top:.5rem;}
+  .msg.err{color:var(--clay);}
+  .loading{color:var(--ink-dim); font-family:'IBM Plex Mono',monospace; font-size:.85rem; padding:3rem 0; text-align:center;}
+</style>
+</head>
+<body>
+
+<div id="app" class="wrap" style="display:none;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+    <div>
+      <div class="eyebrow">Agudah National Office · Charidy</div>
+      <h1>Campaign Ledger</h1>
+      <p class="sub">Live comparison of this year's campaign against last year's, pulled straight from Charidy.</p>
+    </div>
+    <button class="btn ghost small" onclick="logout()">Sign out</button>
+  </div>
+
+  <div class="toolbar">
+    <select id="yearA" onchange="loadAll()"></select>
+    <span style="color:var(--ink-dim);font-family:'IBM Plex Mono',monospace;font-size:.8rem;">vs</span>
+    <select id="yearB" onchange="loadAll()"></select>
+    <span style="flex:1"></span>
+    <button class="btn ghost small" onclick="toggleSync()">Sync controls</button>
+    <button class="btn small" onclick="loadAll()">Refresh</button>
+  </div>
+
+  <div id="syncPanel" class="panel" style="display:none; margin-bottom:2rem;">
+    <h3>Sync status</h3>
+    <div id="syncRows"></div>
+  </div>
+
+  <div id="loading" class="loading">Loading the ledger…</div>
+  <div id="content" style="display:none;">
+    <div class="tally">
+      <div class="tally-col">
+        <div class="tally-label" id="labelB">—</div>
+        <div class="tally-num" id="numB">$0</div>
+        <div class="tally-meta" id="metaB">—</div>
+      </div>
+      <div class="tally-col">
+        <div class="tally-label" id="labelA">—</div>
+        <div class="tally-num gold" id="numA">$0</div>
+        <div class="tally-meta" id="metaA">—</div>
+      </div>
+    </div>
+    <div class="delta-bar-row">
+      <div class="delta-track"><div class="delta-fill" id="deltaFill" style="width:0%"></div></div>
+      <div class="delta-pct" id="deltaPct">—</div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h3 id="sourceHeaderA">By source — this year</h3>
+        <table><thead><tr><th>Source</th><th style="text-align:right">Gifts</th><th style="text-align:right">Raised</th></tr></thead><tbody id="sourceA"></tbody></table>
+      </div>
+      <div class="panel">
+        <h3 id="sourceHeaderB">By source — last year</h3>
+        <table><thead><tr><th>Source</th><th style="text-align:right">Gifts</th><th style="text-align:right">Raised</th></tr></thead><tbody id="sourceB"></tbody></table>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h3 id="teamHeaderA">Top teams — this year</h3>
+        <table><thead><tr><th>Team</th><th style="text-align:right">Gifts</th><th style="text-align:right">Raised</th></tr></thead><tbody id="teamA"></tbody></table>
+      </div>
+      <div class="panel">
+        <h3 id="teamHeaderB">Top teams — last year</h3>
+        <table><thead><tr><th>Team</th><th style="text-align:right">Gifts</th><th style="text-align:right">Raised</th></tr></thead><tbody id="teamB"></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function api(path, opts){
+  opts = opts || {};
+  opts.credentials = 'include';
+  opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  const r = await fetch(path, opts);
+  if(r.status === 401){ window.location.href = '/login.html'; throw new Error('Not logged in'); }
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.error || ('HTTP '+r.status));
+  return d;
+}
+
+async function logout(){
+  await fetch('/api/logout', {method:'POST', credentials:'include'}).catch(()=>{});
+  window.location.href = '/login.html';
+}
+
+function fmtMoney(n){
+  return '$'+Number(n||0).toLocaleString('en-US',{maximumFractionDigits:0});
+}
+
+async function loadAll(){
+  const yA = document.getElementById('yearA').value;
+  const yB = document.getElementById('yearB').value;
+  document.getElementById('loading').style.display='block';
+  document.getElementById('content').style.display='none';
+  try{
+    const [sumA, sumB] = await Promise.all([api('/api/summary?year='+yA), api('/api/summary?year='+yB)]);
+    render(yA, sumA, yB, sumB);
+  }catch(e){
+    document.getElementById('loading').textContent = 'Could not load: '+e.message;
+    return;
+  }
+  document.getElementById('loading').style.display='none';
+  document.getElementById('content').style.display='block';
+}
+
+function render(yA, sumA, yB, sumB){
+  document.getElementById('labelA').textContent = yA;
+  document.getElementById('labelB').textContent = yB;
+  document.getElementById('numA').textContent = fmtMoney(sumA.totals.amount);
+  document.getElementById('numB').textContent = fmtMoney(sumB.totals.amount);
+  document.getElementById('metaA').textContent = sumA.totals.count.toLocaleString()+' gifts · '+sumA.totals.donors.toLocaleString()+' donors · avg '+fmtMoney(sumA.totals.avg_gift);
+  document.getElementById('metaB').textContent = sumB.totals.count.toLocaleString()+' gifts · '+sumB.totals.donors.toLocaleString()+' donors · avg '+fmtMoney(sumB.totals.avg_gift);
+
+  const max = Math.max(sumA.totals.amount, sumB.totals.amount, 1);
+  document.getElementById('deltaFill').style.width = (Math.min(sumA.totals.amount,sumB.totals.amount)/max*100)+'%';
+  const diff = sumA.totals.amount - sumB.totals.amount;
+  const pct = sumB.totals.amount ? (diff/sumB.totals.amount*100) : 0;
+  const pctEl = document.getElementById('deltaPct');
+  pctEl.textContent = (diff>=0?'▲ ':'▼ ')+Math.abs(pct).toFixed(1)+'% vs '+yB+' ('+(diff>=0?'+':'')+fmtMoney(diff)+')';
+  pctEl.className = 'delta-pct '+(diff>=0?'up':'down');
+
+  document.getElementById('sourceHeaderA').textContent = 'By source — '+yA;
+  document.getElementById('sourceHeaderB').textContent = 'By source — '+yB;
+  document.getElementById('teamHeaderA').textContent = 'Top teams — '+yA;
+  document.getElementById('teamHeaderB').textContent = 'Top teams — '+yB;
+
+  fillTable('sourceA', sumA.by_source, 'source');
+  fillTable('sourceB', sumB.by_source, 'source');
+  fillTable('teamA', sumA.by_team, 'team');
+  fillTable('teamB', sumB.by_team, 'team');
+}
+
+function fillTable(elId, rows, key){
+  const el = document.getElementById(elId);
+  if(!rows || !rows.length){ el.innerHTML = '<tr><td colspan="3" style="color:var(--ink-dim)">No data yet.</td></tr>'; return; }
+  el.innerHTML = rows.slice(0,10).map(r =>
+    '<tr><td>'+(r[key]||'—')+'</td><td class="num">'+r.count.toLocaleString()+'</td><td class="num">'+fmtMoney(r.amount)+'</td></tr>'
+  ).join('');
+}
+
+function toggleSync(){
+  const p = document.getElementById('syncPanel');
+  const show = p.style.display === 'none';
+  p.style.display = show ? 'block' : 'none';
+  if(show) loadSyncStatus();
+}
+
+async function loadSyncStatus(){
+  const el = document.getElementById('syncRows');
+  el.innerHTML = 'Loading…';
+  try{
+    const d = await api('/api/sync/status');
+    if(!d.rows || !d.rows.length){ el.innerHTML = '<div class="msg">No sync jobs yet.</div>'; return; }
+    el.innerHTML = d.rows.map(j => {
+      const mins = j.last_run_started_at ? Math.round((Date.now()-new Date(j.last_run_started_at).getTime())/60000) : null;
+      return '<div style="display:flex;align-items:center;gap:.7rem;padding:.5rem 0;border-bottom:1px solid var(--line);flex-wrap:wrap;">'
+        + '<span class="status-pill '+j.status+'">'+j.status+'</span>'
+        + '<span style="font-family:IBM Plex Mono,monospace;font-size:.78rem;color:var(--ink-dim);">org '+j.org_id+' · campaign '+j.campaign_id+' · '+j.year+'</span>'
+        + (mins!=null ? '<span style="font-family:IBM Plex Mono,monospace;font-size:.72rem;color:var(--ink-dim);">'+mins+'m ago</span>' : '')
+        + (j.last_added!=null ? '<span style="font-family:IBM Plex Mono,monospace;font-size:.72rem;color:var(--ink-dim);">+'+j.last_added+' new</span>' : '')
+        + '<span style="flex:1"></span>'
+        + '<button class="btn ghost small" onclick="runSync(\''+j.org_id+'\',\''+j.campaign_id+'\',\''+j.year+'\')">Sync now</button>'
+        + (j.status==='running' ? '<button class="btn ghost small" onclick="resetSync(\''+j.org_id+'\',\''+j.campaign_id+'\',\''+j.year+'\')">Reset</button>' : '')
+        + '</div>';
+    }).join('');
+  }catch(e){ el.innerHTML = '<div class="msg err">'+e.message+'</div>'; }
+}
+
+async function runSync(org, campaign, year){
+  try{ await api('/api/sync?org='+org+'&campaign='+campaign+'&year='+year, {method:'POST'}); await loadSyncStatus(); }
+  catch(e){ alert('Sync failed to start: '+e.message); }
+}
+async function resetSync(org, campaign, year){
+  try{ await api('/api/sync/reset', {method:'POST', body: JSON.stringify({org,campaign,year,force:true})}); await loadSyncStatus(); }
+  catch(e){ alert('Reset failed: '+e.message); }
+}
+
+async function boot(){
+  try{
+    const me = await fetch('/api/me', {credentials:'include'}).then(r=>r.json());
+    if(!me.loggedIn){ window.location.href='/login.html'; return; }
+  }catch(e){ window.location.href='/login.html'; return; }
+  document.getElementById('app').style.display='block';
+  const yA = document.getElementById('yearA'), yB = document.getElementById('yearB');
+  const years = ['2026','2025','2024','all'];
+  yA.innerHTML = years.map(y=>'<option value="'+y+'">'+y+'</option>').join('');
+  yB.innerHTML = years.map(y=>'<option value="'+y+'">'+y+'</option>').join('');
+  yA.value='2026'; yB.value='2025';
+  loadAll();
+}
+boot();
+</script>
+</body>
+</html>
