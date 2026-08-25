@@ -184,6 +184,38 @@
       <div class="panel-head"><h2>Existing ref groups</h2></div>
       <div id="refGroupsList" class="msg">Loading…</div>
     </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Export with filters</h2></div>
+      <p class="msg" style="margin-top:0;">Every export respects whichever filters are set below, and includes email, name, phone, amount, ref, team, gateway, and date.</p>
+      <div style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem;">
+        <div><label class="msg" style="display:block;">Team</label>
+          <select id="fTeam"><option value="">Any</option><option value="__has__">Has a team</option><option value="__none__">No team</option></select>
+        </div>
+        <div><label class="msg" style="display:block;">Ref</label>
+          <select id="fRef"><option value="">Any</option><option value="__has__">Has a ref</option><option value="__none__">No ref</option></select>
+        </div>
+        <div><label class="msg" style="display:block;">Gateway</label>
+          <select id="fGateway"><option value="">Any</option><option value="online">Online</option><option value="offline">Offline</option></select>
+        </div>
+        <div><label class="msg" style="display:block;">Min amount</label><input type="text" id="fMinAmt" style="width:90px;" placeholder="0"></div>
+        <div><label class="msg" style="display:block;">Max amount</label><input type="text" id="fMaxAmt" style="width:90px;" placeholder="none"></div>
+        <button class="btn tiny" onclick="exportFiltered('A')">⬇ Export (A)</button>
+        <button class="btn tiny" onclick="exportFiltered('B')">⬇ Export (B)</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Donors who gave across multiple years</h2></div>
+      <p class="msg" style="margin-top:0;">Check any years, choose "gave in ALL of them" for real multi-year loyalty, or "ANY" for a combined list.</p>
+      <div id="crossYearYears" style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:.8rem;"></div>
+      <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
+        <select id="crossYearMode"><option value="all">Gave in ALL selected years</option><option value="any">Gave in ANY selected year</option></select>
+        <button class="btn tiny" onclick="runCrossYear()">Check</button>
+        <a class="btn ghost tiny" id="crossYearExport" href="#" target="_blank" style="display:none;">⬇ Export CSV</a>
+      </div>
+      <div id="crossYearResult" class="msg"></div>
+    </div>
   </div>
 </div>
 
@@ -390,7 +422,30 @@ async function loadLabels(){
       + '<span style="color:var(--ink-dim);">campaign '+esc(r.campaign_id)+'</span><span>→</span><strong>'+esc(r.label)+'</strong></div>'
     ).join('');
     populateYearSelectors(d.rows.map(r=>r.label));
+    populateCrossYearCheckboxes(d.rows.map(r=>r.label));
   }catch(e){ el.textContent = e.message; }
+}
+function populateCrossYearCheckboxes(labels){
+  const el = document.getElementById('crossYearYears');
+  const uniq = [...new Set(labels)];
+  el.innerHTML = uniq.map(y =>
+    '<label style="display:flex;align-items:center;gap:.35rem;font-size:.82rem;"><input type="checkbox" class="cyYear" value="'+esc(y)+'">'+esc(y)+'</label>'
+  ).join('');
+}
+async function runCrossYear(){
+  const checked = [...document.querySelectorAll('.cyYear:checked')].map(c=>c.value);
+  const mode = document.getElementById('crossYearMode').value;
+  const resultEl = document.getElementById('crossYearResult');
+  const exportLink = document.getElementById('crossYearExport');
+  if(checked.length < 2) { resultEl.textContent = 'Pick at least 2 years to compare.'; exportLink.style.display='none'; return; }
+  resultEl.textContent = 'Checking…';
+  try{
+    const qs = 'labels='+checked.map(encodeURIComponent).join(',')+'&mode='+mode;
+    const d = await api('/api/donors/cross-year?'+qs);
+    resultEl.textContent = d.count.toLocaleString()+' donors '+(mode==='all'?'gave in every one of':'gave in at least one of')+' '+checked.join(', ')+' — '+fmtMoney(d.total_amount)+' total.';
+    exportLink.href = '/api/export/cross-year.csv?'+qs;
+    exportLink.style.display = 'inline-block';
+  }catch(e){ resultEl.textContent = 'Error: '+e.message; exportLink.style.display='none'; }
 }
 async function saveLabel(){
   const campaign_id = document.getElementById('newLabelCampaign').value.trim();
@@ -428,6 +483,17 @@ async function pollImport(jobId){
   }
 }
 
+function exportFiltered(which){
+  const label = which === 'A' ? YEAR_A : YEAR_B;
+  const params = new URLSearchParams({ label });
+  const team = document.getElementById('fTeam').value; if(team) params.set('team', team);
+  const ref = document.getElementById('fRef').value; if(ref) params.set('ref', ref);
+  const gateway = document.getElementById('fGateway').value; if(gateway) params.set('gateway', gateway);
+  const minAmt = document.getElementById('fMinAmt').value.trim(); if(minAmt) params.set('min_amount', minAmt);
+  const maxAmt = document.getElementById('fMaxAmt').value.trim(); if(maxAmt) params.set('max_amount', maxAmt);
+  window.open('/api/export/donations.csv?'+params.toString(), '_blank');
+}
+
 function populateYearSelectors(labels){
   const uniq = [...new Set(labels)].concat(['all']);
   for(const id of ['yearA','yearB']){
@@ -448,6 +514,7 @@ async function boot(){
     const d = await api('/api/campaign-labels');
     const labels = d.rows.map(r=>r.label);
     populateYearSelectors(labels.length ? labels : ['2026','2025']);
+    populateCrossYearCheckboxes(labels);
     document.getElementById('yearA').value = labels[0] || '2026';
     document.getElementById('yearB').value = labels[1] || '2025';
   }catch(e){}
