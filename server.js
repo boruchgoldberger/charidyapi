@@ -899,10 +899,18 @@ async function tmRequest(method, path, body) {
 }
 
 app.get('/api/textmagic/test', requireToken, async (req, res) => {
-  try {
-    const account = await tmRequest('GET', '/account');
-    res.json({ ok: true, account });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  const candidates = ['/user', '/account', '/stats', '/users/me'];
+  const attempts = [];
+  for (const p of candidates) {
+    try {
+      const data = await tmRequest('GET', p);
+      attempts.push({ path: p, ok: true, data });
+      return res.json({ ok: true, working_path: p, data, all_attempts: attempts });
+    } catch (e) {
+      attempts.push({ path: p, ok: false, error: e.message });
+    }
+  }
+  res.status(500).json({ error: 'None of the probed paths worked — see attempts for the exact error from each.', attempts });
 });
 
 // Finds a custom field by name, creating it if it doesn't exist yet — used
