@@ -965,33 +965,28 @@ async function resolveSegmentRecipients(req) {
   return { withPhones, noPhone };
 }
 
-function resolveMessageTemplate(template, r) {
-  return template
-    .replace(/\{First ?Name\}/gi, r.firstname || '')
-    .replace(/\{Last ?Name\}/gi, r.lastname || '')
-    .replace(/\{Amount\}/gi, r.amount != null ? ('$' + Number(r.amount).toLocaleString('en-US', { maximumFractionDigits: 0 })) : '');
-}
-
 app.post('/api/textmagic/preview-segment', requireToken, async (req, res) => {
   try {
-    const { message } = req.body;
-    if (!message) return res.status(400).json({ error: 'message required.' });
     const { withPhones, noPhone } = await resolveSegmentRecipients(req);
-    const sample = withPhones.slice(0, 5).map(r => ({ phone: r.phone_e164, firstname: r.firstname, amount: r.amount, resolved_text: resolveMessageTemplate(message, r) }));
+    const sample = withPhones.slice(0, 5).map(r => ({ phone: r.phone_e164, firstname: r.firstname, lastname: r.lastname, amount: r.amount }));
     res.json({ ok: true, recipient_count: withPhones.length, missing_phone_count: noPhone.length, sample });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/textmagic/send-segment', requireToken, async (req, res) => {
+// Builds the list and its contacts inside TextMagic — deliberately does NOT
+// send anything. TextMagic's own bulk-send UI handles pacing/batching for
+// large sends better than doing it one API call at a time here would;
+// this just gets the right people, with their Amount as a real dynamic
+// field, ready to compose and send from TextMagic directly.
+app.post('/api/textmagic/build-list', requireToken, async (req, res) => {
   try {
-    if (req.body?.confirm !== 'SEND') return res.status(400).json({ error: 'Pass {"confirm":"SEND"} to actually send — this sends real text messages to real people and cannot be undone.' });
-    const { message, list_name } = req.body;
-    if (!message) return res.status(400).json({ error: 'message required.' });
+    if (req.body?.confirm !== 'BUILD') return res.status(400).json({ error: 'Pass {"confirm":"BUILD"} to actually create this — it adds real contacts to your TextMagic account.' });
+    const { list_name } = req.body;
     const { withPhones, noPhone } = await resolveSegmentRecipients(req);
     if (!withPhones.length) return res.status(400).json({ error: 'No recipients with a usable phone number matched this filter.' });
 
     const amountFieldId = await ensureCustomField('Amount');
-    const list = await tmRequest('POST', '/lists', { name: list_name || ('Agudah segment - ' + new Date().toISOString()) });
+    const list = await tmRequest('POST', '/lists', { name: list_name || ('Agudah segment - ' + new Date().toISOString().slice(0, 19)) });
     const listId = list.id;
 
     let created = 0, failed = 0;
@@ -1008,8 +1003,7 @@ app.post('/api/textmagic/send-segment', requireToken, async (req, res) => {
       } catch (e) { failed++; } // likely "already exists" for a returning donor — not fatal
     }
 
-    const sendResult = await tmRequest('POST', '/messages', { text: message, lists: [listId] });
-    res.json({ ok: true, list_id: listId, contacts_created: created, contacts_failed_to_add: failed, recipient_count: withPhones.length, missing_phone_count: noPhone.length, send_result: sendResult });
+    res.json({ ok: true, list_id: listId, list_name: list.name, contacts_created: created, contacts_failed_to_add: failed, recipient_count: withPhones.length, missing_phone_count: noPhone.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
