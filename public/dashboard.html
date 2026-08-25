@@ -181,6 +181,23 @@
     </div>
 
     <div class="panel">
+      <div class="panel-head"><h2>Send via TextMagic</h2></div>
+      <p class="msg" style="margin-top:0;">Uses the same filters as the export above (or the cross-year selection below it). Personalize with <code>{First Name}</code>, <code>{Last Name}</code>, <code>{Amount}</code> — resolved per recipient from their matching donations.</p>
+      <div style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:1rem;">
+        <div><label class="msg" style="display:block;">Recipients from</label>
+          <select id="tmSource"><option value="A">Export filter (A)</option><option value="B">Export filter (B)</option><option value="crossyear">Cross-year selection</option></select>
+        </div>
+      </div>
+      <textarea id="tmMessage" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:.6rem;font-family:'IBM Plex Mono',monospace;font-size:.85rem;" placeholder="Hi {First Name}, thank you for your ${Amount} gift to Agudah this year..."></textarea>
+      <div style="display:flex;gap:.6rem;margin-top:.8rem;flex-wrap:wrap;">
+        <button class="btn ghost tiny" onclick="previewTextMagic()">Preview</button>
+        <button class="btn tiny" id="tmSendBtn" onclick="sendTextMagic()" disabled>Send now</button>
+      </div>
+      <div id="tmResult" class="msg"></div>
+      <div id="tmSample" style="margin-top:.6rem;font-family:'IBM Plex Mono',monospace;font-size:.76rem;color:var(--ink-dim);"></div>
+    </div>
+
+    <div class="panel">
       <div class="panel-head"><h2>Existing ref groups</h2></div>
       <div id="refGroupsList" class="msg">Loading…</div>
     </div>
@@ -488,6 +505,58 @@ async function pollImport(jobId){
     if(d.status === 'done'){ statusEl.textContent += ' ✓ Import complete.'; loadLabels(); loadAll(); return; }
     if(d.status === 'failed'){ statusEl.textContent += ' — Failed: '+d.error; return; }
   }
+}
+
+function buildTmParams(){
+  const source = document.getElementById('tmSource').value;
+  const params = new URLSearchParams();
+  if(source === 'crossyear'){
+    const checked = [...document.querySelectorAll('.cyYear:checked')].map(c=>c.value);
+    if(checked.length < 2) throw new Error('Pick at least 2 years in the cross-year section below first.');
+    params.set('labels', checked.join(','));
+    params.set('mode', document.getElementById('crossYearMode').value);
+  } else {
+    params.set('label', source === 'A' ? YEAR_A : YEAR_B);
+    const team = document.getElementById('fTeam').value; if(team) params.set('team', team);
+    const ref = document.getElementById('fRef').value; if(ref) params.set('ref', ref);
+    const gateway = document.getElementById('fGateway').value; if(gateway) params.set('gateway', gateway);
+    const minAmt = document.getElementById('fMinAmt').value.trim(); if(minAmt) params.set('min_amount', minAmt);
+    const maxAmt = document.getElementById('fMaxAmt').value.trim(); if(maxAmt) params.set('max_amount', maxAmt);
+  }
+  return params;
+}
+
+let _tmLastPreviewOk = false;
+async function previewTextMagic(){
+  const resultEl = document.getElementById('tmResult'), sampleEl = document.getElementById('tmSample');
+  const message = document.getElementById('tmMessage').value.trim();
+  _tmLastPreviewOk = false;
+  document.getElementById('tmSendBtn').disabled = true;
+  if(!message){ resultEl.textContent = 'Write a message first.'; return; }
+  resultEl.textContent = 'Checking…'; sampleEl.innerHTML = '';
+  try{
+    const params = buildTmParams();
+    const d = await api('/api/textmagic/preview-segment?'+params.toString(), {method:'POST', body: JSON.stringify({message})});
+    resultEl.textContent = d.recipient_count.toLocaleString()+' recipients with a usable phone number'+(d.missing_phone_count?(' · '+d.missing_phone_count.toLocaleString()+' matched but have no phone on file'):'')+'.';
+    sampleEl.innerHTML = 'Sample messages:<br>' + d.sample.map(s => esc(s.phone)+': "'+esc(s.resolved_text)+'"').join('<br>');
+    if(d.recipient_count > 0){ _tmLastPreviewOk = true; document.getElementById('tmSendBtn').disabled = false; }
+  }catch(e){ resultEl.textContent = 'Error: '+e.message; }
+}
+
+async function sendTextMagic(){
+  if(!_tmLastPreviewOk) return alert('Run Preview first.');
+  const message = document.getElementById('tmMessage').value.trim();
+  const params = buildTmParams();
+  const ok = window.confirm('This sends REAL text messages to real people right now, through the Agudah TextMagic account. This cannot be undone.\n\nAre you sure?');
+  if(!ok) return;
+  const resultEl = document.getElementById('tmResult');
+  resultEl.textContent = 'Sending…';
+  try{
+    const d = await api('/api/textmagic/send-segment?'+params.toString(), {method:'POST', body: JSON.stringify({message, confirm:'SEND'})});
+    resultEl.textContent = '✓ Sent to '+d.recipient_count.toLocaleString()+' people (list id '+d.list_id+'). '+d.contacts_created+' contacts created/updated in TextMagic.';
+    document.getElementById('tmSendBtn').disabled = true;
+    _tmLastPreviewOk = false;
+  }catch(e){ resultEl.textContent = 'Error: '+e.message; }
 }
 
 function exportFiltered(which){
