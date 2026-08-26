@@ -149,6 +149,21 @@
 
     <div class="panel">
       <div class="panel-head">
+        <h2>Recent donations</h2>
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--ink-dim);cursor:pointer;">
+          <input type="checkbox" id="recentRefOnly" onchange="loadRecentDonations(true)"> Ref only
+        </label>
+      </div>
+      <p class="msg" style="margin-top:0;">From year A (<span id="recentYearLabel"></span>).</p>
+      <table>
+        <thead><tr><th>Date</th><th>Name</th><th style="text-align:right">Amount</th><th>Team</th><th>Ref</th></tr></thead>
+        <tbody id="recentDonationsTable"></tbody>
+      </table>
+      <div style="margin-top:.8rem;"><button class="btn ghost tiny" onclick="seeMoreRecent()">See more</button></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
         <h2>By source (ref)</h2>
         <div style="display:flex;gap:.5rem;">
           <button class="btn ghost tiny" id="combineBtn" onclick="openCombineModal()" disabled>Combine selected</button>
@@ -331,7 +346,30 @@ function render(){
   document.getElementById('exportSourceB').href = '/api/export/summary.csv'+qs(YEAR_B)+'&type=source';
   document.getElementById('exportTeamA').href = '/api/export/summary.csv'+qs(YEAR_A)+'&type=team';
   document.getElementById('exportTeamB').href = '/api/export/summary.csv'+qs(YEAR_B)+'&type=team';
+
+  document.getElementById('recentYearLabel').textContent = YEAR_A;
+  loadRecentDonations(true);
 }
+
+let _recentLimit = 10;
+async function loadRecentDonations(reset){
+  if(reset) _recentLimit = 10;
+  const tbody = document.getElementById('recentDonationsTable');
+  tbody.innerHTML = '<tr><td colspan="5" style="color:var(--ink-dim)">Loading…</td></tr>';
+  try{
+    const params = new URLSearchParams({ label: YEAR_A, limit: String(_recentLimit) });
+    if(document.getElementById('recentRefOnly').checked) params.set('ref', '__has__');
+    const d = await api('/api/donations?'+params.toString());
+    if(!d.rows.length){ tbody.innerHTML = '<tr><td colspan="5" style="color:var(--ink-dim)">No donations match.</td></tr>'; return; }
+    tbody.innerHTML = d.rows.map(r => {
+      const name = [r.firstname, r.lastname].filter(Boolean).join(' ') || r.display_name || '—';
+      const date = r.donated_at ? new Date(r.donated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+      return '<tr><td>'+esc(date)+'</td><td>'+esc(name)+'</td><td class="num">'+fmtMoney(r.amount)+'</td><td>'+esc(r.team||'—')+'</td><td>'+esc(r.utm_source||'—')+'</td></tr>';
+    }).join('');
+  }catch(e){ tbody.innerHTML = '<tr><td colspan="5" style="color:var(--clay)">'+esc(e.message)+'</td></tr>'; }
+}
+function seeMoreRecent(){ _recentLimit += 10; loadRecentDonations(false); }
+
 
 // Merges two breakdown arrays (by source or by team) into one row set keyed
 // by name, sorted by combined total — a real side-by-side, not two
@@ -423,11 +461,16 @@ async function loadSyncStatus(){
         + (mins!=null ? '<span style="font-family:IBM Plex Mono,monospace;font-size:.72rem;color:var(--ink-dim);">'+mins+'m ago</span>' : '')
         + (j.last_added!=null ? '<span style="font-family:IBM Plex Mono,monospace;font-size:.72rem;color:var(--ink-dim);">+'+j.last_added+' new</span>' : '')
         + '<span style="flex:1"></span>'
+        + '<label style="display:flex;align-items:center;gap:.3rem;font-size:.72rem;color:var(--ink-dim);cursor:pointer;"><input type="checkbox" '+(j.auto_enabled?'checked':'')+' onchange="toggleAutosync(\''+j.org_id+'\',\''+j.campaign_id+'\',\''+j.year+'\',this.checked)"> Auto-sync</label>'
         + '<button class="btn ghost tiny" onclick="runSync(\''+j.org_id+'\',\''+j.campaign_id+'\',\''+j.year+'\')">Sync now</button>'
         + (j.status==='running' ? '<button class="btn ghost tiny" onclick="resetSync(\''+j.org_id+'\',\''+j.campaign_id+'\',\''+j.year+'\')">Reset</button>' : '')
         + '</div>';
     }).join('');
   }catch(e){ el.innerHTML = '<div class="msg err">'+e.message+'</div>'; }
+}
+async function toggleAutosync(org, campaign, year, enabled){
+  try{ await api('/api/autosync', {method:'POST', body: JSON.stringify({org,campaign,year,enabled})}); }
+  catch(e){ alert('Could not update auto-sync: '+e.message); loadSyncStatus(); }
 }
 async function runSync(org, campaign, year){
   try{ await api('/api/sync?org='+org+'&campaign='+campaign+'&year='+year, {method:'POST'}); await loadSyncStatus(); }
