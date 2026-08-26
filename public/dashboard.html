@@ -634,8 +634,8 @@ async function boot(){
     const labels = d.rows.map(r=>r.label);
     populateYearSelectors(labels.length ? labels : ['2026','2025']);
     populateCrossYearCheckboxes(labels);
-    document.getElementById('yearA').value = labels[0] || '2026';
-    document.getElementById('yearB').value = labels[1] || '2025';
+    document.getElementById('yearA').value = labels.includes('2026') ? '2026' : (labels[labels.length-1] || '2026');
+    document.getElementById('yearB').value = labels.includes('2025') ? '2025' : (labels[labels.length-2] || '2025');
   }catch(e){}
   loadAll();
 }
