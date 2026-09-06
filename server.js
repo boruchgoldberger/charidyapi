@@ -164,14 +164,10 @@ app.post('/api/logout', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Login requirement removed by explicit request — always reports logged in
+// so the dashboard's client-side gate never redirects to /login.html.
 app.get('/api/me', async (req, res) => {
-  try {
-    await ensureSchema();
-    const sid = req.cookies && req.cookies.session;
-    if (!sid) return res.json({ loggedIn: false });
-    const r = await pool.query('SELECT * FROM sessions WHERE id=$1 AND expires_at > NOW()', [sid]);
-    res.json({ loggedIn: r.rows.length > 0 });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  res.json({ loggedIn: true });
 });
 
 
@@ -401,7 +397,7 @@ app.get('/health', async (req, res) => {
 
 // Discover Agudah's org ID and campaign ID — run this FIRST, once, before
 // anything else. Needs only CHARIDY_EMAIL / CHARIDY_PASSWORD set.
-app.post('/api/campaigns', requireToken, async (req, res) => {
+app.post('/api/campaigns', async (req, res) => {
   try {
     await charidyLogin(true);
     const wantOrg = req.query.org || (req.body && req.body.org);
@@ -438,7 +434,7 @@ app.post('/api/campaigns', requireToken, async (req, res) => {
 });
 
 // POST /api/sync?org=..&campaign=..&year=2025[&mode=full|incremental]
-app.post('/api/sync', requireToken, async (req, res) => {
+app.post('/api/sync', async (req, res) => {
   try {
     await ensureSchema();
     const year = String(req.query.year || (req.body && req.body.year) || '').trim();
@@ -453,7 +449,7 @@ app.post('/api/sync', requireToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/sync/status', requireToken, async (req, res) => {
+app.get('/api/sync/status', async (req, res) => {
   try {
     await ensureSchema();
     const { org, campaign, year } = req.query;
@@ -466,7 +462,7 @@ app.get('/api/sync/status', requireToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/autosync', requireToken, async (req, res) => {
+app.post('/api/autosync', async (req, res) => {
   try {
     await ensureSchema();
     const orgId = req.body.org, campaignId = req.body.campaign, year = String(req.body.year || '').trim();
@@ -544,7 +540,7 @@ function buildDonationFilters(req, paramsStart) {
   return { where, params };
 }
 
-app.get('/api/donations', requireToken, async (req, res) => {
+app.get('/api/donations', async (req, res) => {
   try {
     await ensureSchema();
     const camp = await resolveCampaignWhere(req, 1);
@@ -563,7 +559,7 @@ app.get('/api/donations', requireToken, async (req, res) => {
 // segment cross-tabs (team/ref/gateway), the data a comparison dashboard
 // actually needs. No caps on the lists — CSV export needs everything, and
 // realistically there aren't thousands of distinct sources or teams.
-app.get('/api/summary', requireToken, async (req, res) => {
+app.get('/api/summary', async (req, res) => {
   try {
     await ensureSchema();
     const camp = await resolveCampaignWhere(req, 1);
@@ -625,14 +621,14 @@ app.get('/api/summary', requireToken, async (req, res) => {
 });
 
 // ── Campaign labels — rename which real campaign means "2026" etc. ─────
-app.get('/api/campaign-labels', requireToken, async (req, res) => {
+app.get('/api/campaign-labels', async (req, res) => {
   try {
     await ensureSchema();
     const rows = (await pool.query('SELECT * FROM campaign_labels ORDER BY label')).rows;
     res.json({ ok: true, rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/campaign-labels', requireToken, async (req, res) => {
+app.post('/api/campaign-labels', async (req, res) => {
   try {
     await ensureSchema();
     const { campaign_id, label } = req.body;
@@ -647,11 +643,11 @@ app.post('/api/campaign-labels', requireToken, async (req, res) => {
 });
 
 // ── Ref groups — combine several raw utm_source values under one label ─
-app.get('/api/ref-groups', requireToken, async (req, res) => {
+app.get('/api/ref-groups', async (req, res) => {
   try { await ensureSchema(); const rows = (await pool.query('SELECT * FROM ref_groups ORDER BY label')).rows; res.json({ ok: true, rows }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post('/api/ref-groups', requireToken, async (req, res) => {
+app.post('/api/ref-groups', async (req, res) => {
   try {
     await ensureSchema();
     const { label, sources, treat_as_no_ref } = req.body;
@@ -660,7 +656,7 @@ app.post('/api/ref-groups', requireToken, async (req, res) => {
     res.json({ ok: true, id: r.rows[0].id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.delete('/api/ref-groups/:id', requireToken, async (req, res) => {
+app.delete('/api/ref-groups/:id', async (req, res) => {
   try { await ensureSchema(); await pool.query('DELETE FROM ref_groups WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -738,7 +734,7 @@ async function runHistoricalImport(jobId, buffer) {
   }
 }
 
-app.post('/api/import/historical-xlsx', requireToken, upload.single('file'), async (req, res) => {
+app.post('/api/import/historical-xlsx', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded (field name "file").' });
   await ensureSchema();
   const jobId = crypto.randomBytes(8).toString('hex');
@@ -747,7 +743,7 @@ app.post('/api/import/historical-xlsx', requireToken, upload.single('file'), asy
   res.json({ ok: true, job_id: jobId });
 });
 
-app.get('/api/import/status/:jobId', requireToken, (req, res) => {
+app.get('/api/import/status/:jobId', (req, res) => {
   const job = _importJobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Unknown import job (may have expired on a restart).' });
   res.json({ ok: true, ...job });
@@ -767,7 +763,7 @@ function toCSV(rows, columns) {
   return header + '\n' + body;
 }
 
-app.get('/api/export/donations.csv', requireToken, async (req, res) => {
+app.get('/api/export/donations.csv', async (req, res) => {
   try {
     await ensureSchema();
     const camp = await resolveCampaignWhere(req, 1);
@@ -793,7 +789,7 @@ app.get('/api/export/donations.csv', requireToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/export/summary.csv', requireToken, async (req, res) => {
+app.get('/api/export/summary.csv', async (req, res) => {
   try {
     await ensureSchema();
     const type = (req.query.type || 'source') === 'team' ? 'team' : 'source';
@@ -852,7 +848,7 @@ async function crossYearQuery(req) {
   return { labels, mode, rows };
 }
 
-app.get('/api/donors/cross-year', requireToken, async (req, res) => {
+app.get('/api/donors/cross-year', async (req, res) => {
   try {
     await ensureSchema();
     const { labels, mode, rows } = await crossYearQuery(req);
@@ -860,7 +856,7 @@ app.get('/api/donors/cross-year', requireToken, async (req, res) => {
   } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 
-app.get('/api/export/cross-year.csv', requireToken, async (req, res) => {
+app.get('/api/export/cross-year.csv', async (req, res) => {
   try {
     await ensureSchema();
     const { labels, rows } = await crossYearQuery(req);
@@ -898,7 +894,7 @@ async function tmRequest(method, path, body) {
   return data;
 }
 
-app.get('/api/textmagic/test', requireToken, async (req, res) => {
+app.get('/api/textmagic/test', async (req, res) => {
   const candidates = ['/user', '/account', '/stats', '/users/me'];
   const attempts = [];
   for (const p of candidates) {
@@ -965,7 +961,7 @@ async function resolveSegmentRecipients(req) {
   return { withPhones, noPhone };
 }
 
-app.post('/api/textmagic/preview-segment', requireToken, async (req, res) => {
+app.post('/api/textmagic/preview-segment', async (req, res) => {
   try {
     const { withPhones, noPhone } = await resolveSegmentRecipients(req);
     const sample = withPhones.slice(0, 5).map(r => ({ phone: r.phone_e164, firstname: r.firstname, lastname: r.lastname, amount: r.amount }));
@@ -978,7 +974,7 @@ app.post('/api/textmagic/preview-segment', requireToken, async (req, res) => {
 // large sends better than doing it one API call at a time here would;
 // this just gets the right people, with their Amount as a real dynamic
 // field, ready to compose and send from TextMagic directly.
-app.post('/api/textmagic/build-list', requireToken, async (req, res) => {
+app.post('/api/textmagic/build-list', async (req, res) => {
   try {
     if (req.body?.confirm !== 'BUILD') return res.status(400).json({ error: 'Pass {"confirm":"BUILD"} to actually create this — it adds real contacts to your TextMagic account.' });
     const { list_name } = req.body;
@@ -1007,6 +1003,10 @@ app.post('/api/textmagic/build-list', requireToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Kept locked even though the rest of the dashboard no longer requires
+// login -- this permanently deletes every donation record with no undo, so
+// it stays behind requireToken specifically. Reachable now only via the
+// x-sync-token header/query fallback, since the login flow is disabled.
 app.post('/api/admin/wipe-donations', requireToken, async (req, res) => {
   try {
     await ensureSchema();
@@ -1022,7 +1022,7 @@ app.post('/api/admin/wipe-donations', requireToken, async (req, res) => {
 // deploy/restart killing it mid-run) so it can be retried. Only allows
 // resetting jobs that have genuinely been running a long time, as a guard
 // against accidentally interrupting one that's actually still working.
-app.post('/api/sync/reset', requireToken, async (req, res) => {
+app.post('/api/sync/reset', async (req, res) => {
   try {
     await ensureSchema();
     const { org, campaign, year } = req.body;
