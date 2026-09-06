@@ -156,7 +156,7 @@
       </div>
       <p class="msg" style="margin-top:0;">From year A (<span id="recentYearLabel"></span>).</p>
       <table>
-        <thead><tr><th>Date</th><th>Name</th><th style="text-align:right">Amount</th><th>Team</th><th>Ref</th></tr></thead>
+        <thead><tr><th>Date &amp; Time</th><th>Name</th><th style="text-align:right">Amount</th><th>Team</th><th>Ref</th></tr></thead>
         <tbody id="recentDonationsTable"></tbody>
       </table>
       <div style="margin-top:.8rem;"><button class="btn ghost tiny" onclick="seeMoreRecent()">See more</button></div>
@@ -363,7 +363,7 @@ async function loadRecentDonations(reset){
     if(!d.rows.length){ tbody.innerHTML = '<tr><td colspan="5" style="color:var(--ink-dim)">No donations match.</td></tr>'; return; }
     tbody.innerHTML = d.rows.map(r => {
       const name = [r.firstname, r.lastname].filter(Boolean).join(' ') || r.display_name || '—';
-      const date = r.donated_at ? new Date(r.donated_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+      const date = r.donated_at ? new Date(r.donated_at).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : '—';
       return '<tr><td>'+esc(date)+'</td><td>'+esc(name)+'</td><td class="num">'+fmtMoney(r.amount)+'</td><td>'+esc(r.team||'—')+'</td><td>'+esc(r.utm_source||'—')+'</td></tr>';
     }).join('');
   }catch(e){ tbody.innerHTML = '<tr><td colspan="5" style="color:var(--clay)">'+esc(e.message)+'</td></tr>'; }
