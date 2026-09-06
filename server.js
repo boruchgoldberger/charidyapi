@@ -395,6 +395,21 @@ app.get('/health', async (req, res) => {
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+// Diagnostic only — breakdown of every status value actually seen in the
+// donations table, to check which ones represent real completed gifts vs
+// e.g. a payment "Attempt" that a separate "Processed" row already covers
+// (both get synced from Charidy under different donation_ids for what's
+// really the same transaction, so totals were double-counting these pairs).
+app.get('/api/debug/status-breakdown', async (req, res) => {
+  try {
+    await ensureSchema();
+    const rows = (await pool.query(
+      `SELECT COALESCE(status,'(blank)') AS status, COUNT(*) n, COALESCE(SUM(amount),0) total FROM donations GROUP BY 1 ORDER BY n DESC`
+    )).rows;
+    res.json({ ok: true, rows: rows.map(r => ({ status: r.status, count: Number(r.n), amount: Number(r.total) })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Discover Agudah's org ID and campaign ID — run this FIRST, once, before
 // anything else. Needs only CHARIDY_EMAIL / CHARIDY_PASSWORD set.
 app.post('/api/campaigns', async (req, res) => {
