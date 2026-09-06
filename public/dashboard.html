@@ -143,6 +143,10 @@
       <div class="delta-pct" id="deltaPct">—</div>
     </div>
 
+    <h2>💰 From Referral Sources</h2>
+    <p class="msg" style="margin-top:0;">Excludes "(direct)" (no ref at all) and any source marked "not a real ref" below — e.g. agudahnational. Mark more sources as excluded in "By source (ref)" further down.</p>
+    <div class="seg-grid" id="refTotalGrid" style="grid-template-columns:1fr;max-width:360px;"></div>
+
     <h2>Segments</h2>
     <div class="seg-grid" id="segGrid"></div>
     <div class="seg-grid2" id="gatewayGrid"></div>
@@ -328,6 +332,16 @@ function render(){
   pctEl.textContent = (diff>=0?'▲ ':'▼ ')+Math.abs(pct).toFixed(1)+'% ('+YEAR_A+' vs '+YEAR_B+', '+(diff>=0?'+':'')+fmtMoney(diff)+')';
   pctEl.className = 'delta-pct '+(diff>=0?'up':'down');
 
+  // "From Referral Sources" = has_team_and_ref + no_team_but_ref — i.e.
+  // every donation with a real, non-excluded utm_source, regardless of
+  // whether a team was also attached. Already excludes "(direct)" (blank
+  // utm_source) and anything marked "not a real ref" via a ref group.
+  const fromRefs = (sum) => ({
+    n: sum.segments.team_and_ref.n + sum.segments.no_team_ref.n,
+    total: sum.segments.team_and_ref.total + sum.segments.no_team_ref.total,
+  });
+  document.getElementById('refTotalGrid').innerHTML = segCard('From Referral Sources', fromRefs(SUM_A), fromRefs(SUM_B));
+
   const s = document.getElementById('segGrid');
   s.innerHTML = segCard('Team + Ref', SUM_A.segments.team_and_ref, SUM_B.segments.team_and_ref)
     + segCard('Team, No Ref', SUM_A.segments.team_no_ref, SUM_B.segments.team_no_ref)
@@ -396,12 +410,18 @@ function renderCompareTable(elId, rowsA, rowsB, key, selectable){
 
 function toggleSourceSelect(name, checked){
   if(checked) selectedSources.add(name); else selectedSources.delete(name);
-  document.getElementById('combineBtn').disabled = selectedSources.size < 2;
+  // 1 selected source is enough to mark it "not a real ref" on its own
+  // (e.g. excluding just "agudahnational") — combining into a named group
+  // still works the same way, just with 2+ selected.
+  document.getElementById('combineBtn').disabled = selectedSources.size < 1;
 }
 
 function openCombineModal(){
-  document.getElementById('combineList').innerHTML = [...selectedSources].map(s=>esc(s)).join('<br>');
-  document.getElementById('combineLabel').value = '';
+  const list = [...selectedSources];
+  document.getElementById('combineList').innerHTML = list.map(s=>esc(s)).join('<br>');
+  // Just excluding one source on its own? Default the label to its own
+  // name so you're not forced to retype something for a single exclusion.
+  document.getElementById('combineLabel').value = list.length===1 ? list[0] : '';
   document.getElementById('combineNotRealRef').checked = false;
   document.getElementById('combineModalBg').style.display = 'flex';
 }
