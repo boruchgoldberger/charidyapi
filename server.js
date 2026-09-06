@@ -579,6 +579,29 @@ app.get('/api/donations', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/donations/by-source?label=2026&source=agudahemail24 — the
+// individual donations behind one row of the "By source (ref)" table.
+// Matches on the SAME grouped-label expression the summary table uses
+// (refGroupCaseSQL), not a plain utm_source LIKE — a plain substring match
+// would wrongly pull in e.g. "agudahnational" when drilling into "an".
+app.get('/api/donations/by-source', async (req, res) => {
+  try {
+    await ensureSchema();
+    const camp = await resolveCampaignWhere(req, 1);
+    const where = [`status = ANY(ARRAY[${REAL_DONATION_STATUSES.map(s => `'${s}'`).join(',')}])`];
+    const params = [...camp.params];
+    if (camp.clause) where.push(camp.clause);
+    const refGroupRows = (await pool.query('SELECT * FROM ref_groups')).rows;
+    const sourceExpr = refGroupCaseSQL(refGroupRows);
+    params.push((req.query.source || '').trim());
+    where.push(`(${sourceExpr}) = $${params.length}`);
+    const clause = 'WHERE ' + where.join(' AND ');
+    const limit = Math.min(parseInt(req.query.limit, 10) || 1000, 5000);
+    const rows = (await pool.query(`SELECT * FROM donations ${clause} ORDER BY donated_at DESC LIMIT ${limit}`, params)).rows;
+    res.json({ ok: true, rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/summary?label=2026 — aggregate totals + full breakdowns +
 // segment cross-tabs (team/ref/gateway), the data a comparison dashboard
 // actually needs. No caps on the lists — CSV export needs everything, and

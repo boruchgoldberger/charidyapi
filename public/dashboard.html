@@ -65,8 +65,11 @@
   td.num.dim{color:var(--ink-dim);}
   tr:last-child td{border-bottom:none;}
   .table-scroll{max-height:480px; overflow-y:auto; overflow-x:auto;}
+  .table-scroll.expanded{max-height:none;}
   .table-scroll-x{overflow-x:auto;}
   .row-check{width:1.2rem;}
+  td.num.clickable{cursor:pointer; text-decoration:underline dotted; text-decoration-color:rgba(212,175,55,.4);}
+  td.num.clickable:hover{color:#fff;}
 
   .toolbar{display:flex; gap:.6rem; align-items:center; margin-bottom:1.4rem; flex-wrap:wrap;}
   .status-pill{font-family:'IBM Plex Mono',monospace; font-size:.7rem; padding:.22rem .55rem; border-radius:20px; border:1px solid var(--line); color:var(--ink-dim);}
@@ -181,11 +184,13 @@
         <h2>By source (ref)</h2>
         <div style="display:flex;gap:.5rem;">
           <button class="btn ghost tiny" id="combineBtn" onclick="openCombineModal()" disabled>Combine selected</button>
+          <button class="btn ghost tiny" id="sourceExpandBtn" onclick="toggleSourceExpand()">⇕ Show all</button>
           <a class="btn ghost tiny" id="exportSourceA" href="#" target="_blank">⬇ CSV (A)</a>
           <a class="btn ghost tiny" id="exportSourceB" href="#" target="_blank">⬇ CSV (B)</a>
         </div>
       </div>
-      <div class="table-scroll">
+      <p class="msg" style="margin-top:0;">Click any Gifts/Raised number to see the individual donations behind it.</p>
+      <div class="table-scroll" id="sourceTableWrap">
         <table>
           <thead><tr>
             <th class="row-check"></th>
@@ -292,6 +297,26 @@
     <div style="display:flex;gap:.6rem;">
       <button class="btn" onclick="submitCombine()">Combine</button>
       <button class="btn ghost" onclick="closeCombineModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="donorModalBg">
+  <div class="modal" style="max-width:760px;">
+    <h3 id="donorModalTitle">Donations</h3>
+    <div class="table-scroll" style="max-height:60vh;">
+      <table>
+        <thead><tr>
+          <th class="sortable" onclick="setDonorSort('date')">Date &amp; Time <span class="sort-ind" id="si-donor-date"></span></th>
+          <th class="sortable" onclick="setDonorSort('name')">Name <span class="sort-ind" id="si-donor-name"></span></th>
+          <th class="sortable" style="text-align:right" onclick="setDonorSort('amount')">Amount <span class="sort-ind" id="si-donor-amount"></span></th>
+          <th class="sortable" onclick="setDonorSort('team')">Team <span class="sort-ind" id="si-donor-team"></span></th>
+        </tr></thead>
+        <tbody id="donorModalTable"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:1rem;display:flex;gap:.6rem;">
+      <button class="btn ghost" onclick="closeDonorModal()">Close</button>
     </div>
   </div>
 </div>
@@ -453,12 +478,68 @@ function renderCompareTable(elId, rowsA, rowsB, key, selectable){
   }
   const el = document.getElementById(elId);
   if(!rows.length){ el.innerHTML = '<tr><td colspan="6" style="color:var(--ink-dim)">No data yet.</td></tr>'; return; }
+  const drillable = key === 'source'; // only "By source" has an exact-match drilldown endpoint behind it
   el.innerHTML = rows.map(r => {
     const checkbox = selectable ? '<td><input type="checkbox" '+(selectedSources.has(r.name)?'checked':'')+' onchange="toggleSourceSelect(\''+esc(r.name).replace(/'/g,"\\'")+'\',this.checked)"></td>' : '';
+    const nameAttr = esc(r.name||'').replace(/'/g,"\\'");
+    const click = (which) => drillable && (r[which==='A'?'aN':'bN']) ? ' onclick="openSourceDrilldown(\''+nameAttr+'\',\''+which+'\')"' : '';
+    const cls = (which) => 'num'+(r[which==='A'?'aN':'bN']?'':' dim')+(drillable && r[which==='A'?'aN':'bN']?' clickable':'');
     return '<tr>'+checkbox+'<td>'+esc(r.name||'—')+'</td>'
-      + '<td class="num'+(r.aN?'':' dim')+'">'+r.aN.toLocaleString()+'</td><td class="num'+(r.aAmt?'':' dim')+'">'+fmtMoney(r.aAmt)+'</td>'
-      + '<td class="num'+(r.bN?'':' dim')+'">'+r.bN.toLocaleString()+'</td><td class="num'+(r.bAmt?'':' dim')+'">'+fmtMoney(r.bAmt)+'</td>'
+      + '<td class="'+cls('A')+'"'+click('A')+'>'+r.aN.toLocaleString()+'</td><td class="'+cls('A')+'"'+click('A')+'>'+fmtMoney(r.aAmt)+'</td>'
+      + '<td class="'+cls('B')+'"'+click('B')+'>'+r.bN.toLocaleString()+'</td><td class="'+cls('B')+'"'+click('B')+'>'+fmtMoney(r.bAmt)+'</td>'
       + '</tr>';
+  }).join('');
+}
+
+function toggleSourceExpand(){
+  const wrap = document.getElementById('sourceTableWrap');
+  const btn = document.getElementById('sourceExpandBtn');
+  const expanded = wrap.classList.toggle('expanded');
+  btn.textContent = expanded ? '⇕ Show less' : '⇕ Show all';
+}
+
+let donorModalRows = [];
+const donorSortState = { col:'amount', dir:'desc' };
+async function openSourceDrilldown(sourceName, which){
+  const label = which === 'A' ? YEAR_A : YEAR_B;
+  document.getElementById('donorModalTitle').textContent = (sourceName||'(direct)') + ' — ' + label;
+  document.getElementById('donorModalTable').innerHTML = '<tr><td colspan="4" style="color:var(--ink-dim)">Loading…</td></tr>';
+  document.getElementById('donorModalBg').style.display = 'flex';
+  try{
+    const d = await api('/api/donations/by-source?label='+encodeURIComponent(label)+'&source='+encodeURIComponent(sourceName)+'&limit=2000');
+    donorModalRows = d.rows || [];
+    donorSortState.col = 'amount'; donorSortState.dir = 'desc';
+    renderDonorModal();
+  }catch(e){
+    document.getElementById('donorModalTable').innerHTML = '<tr><td colspan="4" style="color:var(--clay)">'+esc(e.message)+'</td></tr>';
+  }
+}
+function closeDonorModal(){ document.getElementById('donorModalBg').style.display = 'none'; }
+function setDonorSort(col){
+  if(donorSortState.col === col) donorSortState.dir = donorSortState.dir === 'desc' ? 'asc' : 'desc';
+  else { donorSortState.col = col; donorSortState.dir = col === 'name' ? 'asc' : 'desc'; }
+  renderDonorModal();
+}
+function renderDonorModal(){
+  const {col, dir} = donorSortState;
+  const d = dir === 'asc' ? 1 : -1;
+  const rows = [...donorModalRows].sort((x,y)=>{
+    const nameOf = r => [r.firstname, r.lastname].filter(Boolean).join(' ') || r.display_name || '';
+    if(col === 'name') return d * nameOf(x).localeCompare(nameOf(y));
+    if(col === 'team') return d * String(x.team||'').localeCompare(String(y.team||''));
+    if(col === 'date') return d * (new Date(x.donated_at||0) - new Date(y.donated_at||0));
+    return d * ((x.amount||0) - (y.amount||0));
+  });
+  for(const c of ['date','name','amount','team']){
+    const ind = document.getElementById('si-donor-'+c);
+    if(ind) ind.textContent = (col === c) ? (dir === 1 ? '▲':'▼') : '';
+  }
+  const el = document.getElementById('donorModalTable');
+  if(!rows.length){ el.innerHTML = '<tr><td colspan="4" style="color:var(--ink-dim)">No donations found.</td></tr>'; return; }
+  el.innerHTML = rows.map(r => {
+    const name = [r.firstname, r.lastname].filter(Boolean).join(' ') || r.display_name || '—';
+    const date = r.donated_at ? new Date(r.donated_at).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : '—';
+    return '<tr><td>'+esc(date)+'</td><td>'+esc(name)+'</td><td class="num">'+fmtMoney(r.amount)+'</td><td>'+esc(r.team||'—')+'</td></tr>';
   }).join('');
 }
 
