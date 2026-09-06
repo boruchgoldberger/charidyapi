@@ -154,9 +154,12 @@
     <div class="panel">
       <div class="panel-head">
         <h2>Recent donations</h2>
-        <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--ink-dim);cursor:pointer;">
-          <input type="checkbox" id="recentRefOnly" onchange="loadRecentDonations(true)"> Ref only
-        </label>
+        <div style="display:flex;align-items:center;gap:.8rem;">
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--ink-dim);cursor:pointer;">
+            <input type="checkbox" id="recentRefOnly" onchange="loadRecentDonations(true)"> Ref only
+          </label>
+          <button class="btn ghost tiny" onclick="loadRecentDonations(true)">↻ Refresh</button>
+        </div>
       </div>
       <p class="msg" style="margin-top:0;">From year A (<span id="recentYearLabel"></span>).</p>
       <table>
