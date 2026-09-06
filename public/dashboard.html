@@ -56,6 +56,9 @@
   .panel-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:.9rem; flex-wrap:wrap; gap:.5rem;}
   table{width:100%; border-collapse:collapse; font-size:.83rem;}
   th{text-align:left; font-family:'IBM Plex Mono',monospace; font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-dim); padding:.4rem .3rem; border-bottom:1px solid var(--line); font-weight:500; white-space:nowrap;}
+  th.sortable{cursor:pointer; user-select:none;}
+  th.sortable:hover{color:var(--gold);}
+  .sort-ind{display:inline-block; width:.8em; color:var(--gold);}
   td{padding:.4rem .3rem; border-bottom:1px solid rgba(255,255,255,.04); vertical-align:middle;}
   td.num{font-family:'IBM Plex Mono',monospace; text-align:right; color:var(--gold); white-space:nowrap;}
   td.num.dim{color:var(--ink-dim);}
@@ -183,7 +186,14 @@
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th class="row-check"></th><th>Source</th><th style="text-align:right">Gifts A</th><th style="text-align:right">Raised A</th><th style="text-align:right">Gifts B</th><th style="text-align:right">Raised B</th></tr></thead>
+          <thead><tr>
+            <th class="row-check"></th>
+            <th class="sortable" onclick="setSort('sourceTable','name')">Source <span class="sort-ind" id="si-sourceTable-name"></span></th>
+            <th class="sortable" style="text-align:right" onclick="setSort('sourceTable','aN')">Gifts A <span class="sort-ind" id="si-sourceTable-aN"></span></th>
+            <th class="sortable" style="text-align:right" onclick="setSort('sourceTable','aAmt')">Raised A <span class="sort-ind" id="si-sourceTable-aAmt"></span></th>
+            <th class="sortable" style="text-align:right" onclick="setSort('sourceTable','bN')">Gifts B <span class="sort-ind" id="si-sourceTable-bN"></span></th>
+            <th class="sortable" style="text-align:right" onclick="setSort('sourceTable','bAmt')">Raised B <span class="sort-ind" id="si-sourceTable-bAmt"></span></th>
+          </tr></thead>
           <tbody id="sourceTable"></tbody>
         </table>
       </div>
@@ -199,7 +209,13 @@
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Team</th><th style="text-align:right">Gifts A</th><th style="text-align:right">Raised A</th><th style="text-align:right">Gifts B</th><th style="text-align:right">Raised B</th></tr></thead>
+          <thead><tr>
+            <th class="sortable" onclick="setSort('teamTable','name')">Team <span class="sort-ind" id="si-teamTable-name"></span></th>
+            <th class="sortable" style="text-align:right" onclick="setSort('teamTable','aN')">Gifts A <span class="sort-ind" id="si-teamTable-aN"></span></th>
+            <th class="sortable" style="text-align:right" onclick="setSort('teamTable','aAmt')">Raised A <span class="sort-ind" id="si-teamTable-aAmt"></span></th>
+            <th class="sortable" style="text-align:right" onclick="setSort('teamTable','bN')">Gifts B <span class="sort-ind" id="si-teamTable-bN"></span></th>
+            <th class="sortable" style="text-align:right" onclick="setSort('teamTable','bAmt')">Raised B <span class="sort-ind" id="si-teamTable-bAmt"></span></th>
+          </tr></thead>
           <tbody id="teamTable"></tbody>
         </table>
       </div>
@@ -394,7 +410,26 @@ function seeMoreRecent(){ _recentLimit += 10; loadRecentDonations(false); }
 // Merges two breakdown arrays (by source or by team) into one row set keyed
 // by name, sorted by combined total — a real side-by-side, not two
 // separate top-10 lists that can't be compared directly.
+// Per-table sort state, defaulting to combined (A+B) raised, high to low —
+// same as the old fixed behavior — until someone clicks a column header.
+const compareSortState = {
+  sourceTable: { col: null, dir: 'desc' },
+  teamTable: { col: null, dir: 'desc' },
+};
+// Cache of the last render() call's args per table, so clicking a header
+// can re-sort and redraw without needing a fresh API round-trip.
+const compareTableArgs = {};
+
+function setSort(elId, col){
+  const s = compareSortState[elId];
+  if(s.col === col) s.dir = s.dir === 'desc' ? 'asc' : 'desc';
+  else { s.col = col; s.dir = col === 'name' ? 'asc' : 'desc'; }
+  const args = compareTableArgs[elId];
+  if(args) renderCompareTable(elId, args.rowsA, args.rowsB, args.key, args.selectable);
+}
+
 function renderCompareTable(elId, rowsA, rowsB, key, selectable){
+  compareTableArgs[elId] = { rowsA, rowsB, key, selectable };
   const map = new Map();
   for(const r of (rowsA||[])) map.set(r[key], {name:r[key], aN:r.count, aAmt:r.amount, bN:0, bAmt:0});
   for(const r of (rowsB||[])){
@@ -402,11 +437,23 @@ function renderCompareTable(elId, rowsA, rowsB, key, selectable){
     if(ex){ ex.bN = r.count; ex.bAmt = r.amount; }
     else map.set(r[key], {name:r[key], aN:0, aAmt:0, bN:r.count, bAmt:r.amount});
   }
-  const rows = [...map.values()].sort((x,y)=>(y.aAmt+y.bAmt)-(x.aAmt+x.bAmt));
+  const sortState = compareSortState[elId];
+  const col = sortState.col;
+  const dir = sortState.dir === 'asc' ? 1 : -1;
+  const rows = [...map.values()].sort((x,y)=>{
+    if(!col) return (y.aAmt+y.bAmt)-(x.aAmt+x.bAmt); // default: combined raised, desc
+    if(col === 'name') return dir * String(x.name||'').localeCompare(String(y.name||''));
+    return dir * ((x[col]||0) - (y[col]||0));
+  });
+  // Update the ▲/▼ indicator on whichever header is currently active, clear the rest.
+  for(const c of ['name','aN','aAmt','bN','bAmt']){
+    const ind = document.getElementById('si-'+elId+'-'+c);
+    if(ind) ind.textContent = (col === c) ? (dir === 1 ? '▲' : '▼') : '';
+  }
   const el = document.getElementById(elId);
   if(!rows.length){ el.innerHTML = '<tr><td colspan="6" style="color:var(--ink-dim)">No data yet.</td></tr>'; return; }
   el.innerHTML = rows.map(r => {
-    const checkbox = selectable ? '<td><input type="checkbox" onchange="toggleSourceSelect(\''+esc(r.name).replace(/'/g,"\\'")+'\',this.checked)"></td>' : '';
+    const checkbox = selectable ? '<td><input type="checkbox" '+(selectedSources.has(r.name)?'checked':'')+' onchange="toggleSourceSelect(\''+esc(r.name).replace(/'/g,"\\'")+'\',this.checked)"></td>' : '';
     return '<tr>'+checkbox+'<td>'+esc(r.name||'—')+'</td>'
       + '<td class="num'+(r.aN?'':' dim')+'">'+r.aN.toLocaleString()+'</td><td class="num'+(r.aAmt?'':' dim')+'">'+fmtMoney(r.aAmt)+'</td>'
       + '<td class="num'+(r.bN?'':' dim')+'">'+r.bN.toLocaleString()+'</td><td class="num'+(r.bAmt?'':' dim')+'">'+fmtMoney(r.bAmt)+'</td>'
