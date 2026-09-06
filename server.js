@@ -530,9 +530,18 @@ function refGroupCaseSQL(refGroupRows) {
 // (must be blank), or free text (substring match). Plus amount range and
 // gateway, since exports need to answer "team+ref, over $X" style questions
 // directly, not just eyeball a breakdown table.
+// Only these statuses represent real, completed gifts. "Attempt" is a
+// payment-in-progress row that gets a SEPARATE donation_id from Charidy once
+// it actually succeeds — the successful one lands as "Processed", so an
+// Attempt+Processed pair for the same real transaction was showing as two
+// donations. Failed/Canceled/Hidden/Pending are excluded per the org's own
+// read of what those statuses mean here (confirmed directly, not guessed).
+const REAL_DONATION_STATUSES = ['Processed', 'Authorized'];
+
 function buildDonationFilters(req, paramsStart) {
   const where = [], params = [];
   const idx = () => paramsStart + params.length;
+  where.push(`status = ANY(ARRAY[${REAL_DONATION_STATUSES.map(s => `'${s}'`).join(',')}])`);
   const team = (req.query.team || '').trim();
   if (team === '__none__') where.push(`(team IS NULL OR team = '')`);
   else if (team === '__has__') where.push(`(team IS NOT NULL AND team <> '')`);
@@ -578,8 +587,12 @@ app.get('/api/summary', async (req, res) => {
   try {
     await ensureSchema();
     const camp = await resolveCampaignWhere(req, 1);
-    const whereSQL = camp.clause ? 'WHERE ' + camp.clause : '';
-    const andSQL = camp.clause ? 'WHERE ' + camp.clause + ' AND' : 'WHERE';
+    // Doesn't go through buildDonationFilters (this endpoint builds its own
+    // WHERE for each sub-query), so the real-donation-status filter has to
+    // be added here directly too.
+    const statusSQL = `status = ANY(ARRAY[${REAL_DONATION_STATUSES.map(s => `'${s}'`).join(',')}])`;
+    const whereSQL = 'WHERE ' + statusSQL + (camp.clause ? ' AND ' + camp.clause : '');
+    const andSQL = whereSQL + ' AND';
     const params = camp.params;
     const refGroupRows = (await pool.query('SELECT * FROM ref_groups')).rows;
     const sourceExpr = refGroupCaseSQL(refGroupRows);
