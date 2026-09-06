@@ -60,7 +60,8 @@
   td.num{font-family:'IBM Plex Mono',monospace; text-align:right; color:var(--gold); white-space:nowrap;}
   td.num.dim{color:var(--ink-dim);}
   tr:last-child td{border-bottom:none;}
-  .table-scroll{max-height:480px; overflow-y:auto;}
+  .table-scroll{max-height:480px; overflow-y:auto; overflow-x:auto;}
+  .table-scroll-x{overflow-x:auto;}
   .row-check{width:1.2rem;}
 
   .toolbar{display:flex; gap:.6rem; align-items:center; margin-bottom:1.4rem; flex-wrap:wrap;}
@@ -162,10 +163,12 @@
         </div>
       </div>
       <p class="msg" style="margin-top:0;">From year A (<span id="recentYearLabel"></span>).</p>
+      <div class="table-scroll-x">
       <table>
         <thead><tr><th>Date &amp; Time</th><th>Name</th><th style="text-align:right">Amount</th><th>Team</th><th>Ref</th></tr></thead>
         <tbody id="recentDonationsTable"></tbody>
       </table>
+      </div>
       <div style="margin-top:.8rem;"><button class="btn ghost tiny" onclick="seeMoreRecent()">See more</button></div>
     </div>
 
