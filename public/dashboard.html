@@ -59,6 +59,7 @@
   th.sortable{cursor:pointer; user-select:none;}
   th.sortable:hover{color:var(--gold);}
   .sort-ind{display:inline-block; width:.8em; color:var(--gold);}
+  .sort-ind:empty::before{content:'\21C5'; opacity:.35; font-size:.9em;}
   td{padding:.4rem .3rem; border-bottom:1px solid rgba(255,255,255,.04); vertical-align:middle;}
   td.num{font-family:'IBM Plex Mono',monospace; text-align:right; color:var(--gold); white-space:nowrap;}
   td.num.dim{color:var(--ink-dim);}
