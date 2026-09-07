@@ -400,6 +400,23 @@ app.get('/health', async (req, res) => {
 // e.g. a payment "Attempt" that a separate "Processed" row already covers
 // (both get synced from Charidy under different donation_ids for what's
 // really the same transaction, so totals were double-counting these pairs).
+// Fetches the campaign's OWN record straight from Charidy's admin API (not
+// our synced donations table) — to see whether Charidy's own reported
+// raised/donations-count fields match what their dashboard UI shows, and
+// whether our donations-list-based sync could ever reconstruct that number.
+app.get('/api/debug/charidy-campaign', async (req, res) => {
+  try {
+    await charidyLogin(true);
+    const org = (req.query.org || '').trim();
+    const campaign = (req.query.campaign || '').trim();
+    const results = {};
+    for (const p of ['/organization/' + org + '/campaign/' + campaign, '/organization/' + org + '/campaign', '/organization/' + org + '/campaigns']) {
+      try { results[p] = await charidyGet(p); } catch (e) { results[p] = { error: e.message }; }
+    }
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug/resolve', async (req, res) => {
   try {
     const camp = await resolveCampaignWhere(req, 1);
