@@ -403,8 +403,11 @@ app.get('/health', async (req, res) => {
 app.get('/api/debug/status-breakdown', async (req, res) => {
   try {
     await ensureSchema();
+    const campaignId = (req.query.campaign_id || '').trim();
+    const where = campaignId ? 'WHERE campaign_id = $1' : '';
+    const params = campaignId ? [campaignId] : [];
     const rows = (await pool.query(
-      `SELECT COALESCE(status,'(blank)') AS status, COUNT(*) n, COALESCE(SUM(amount),0) total FROM donations GROUP BY 1 ORDER BY n DESC`
+      `SELECT COALESCE(status,'(blank)') AS status, COUNT(*) n, COALESCE(SUM(amount),0) total FROM donations ${where} GROUP BY 1 ORDER BY n DESC`, params
     )).rows;
     res.json({ ok: true, rows: rows.map(r => ({ status: r.status, count: Number(r.n), amount: Number(r.total) })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
