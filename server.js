@@ -404,6 +404,36 @@ app.get('/health', async (req, res) => {
 // our synced donations table) — to see whether Charidy's own reported
 // raised/donations-count fields match what their dashboard UI shows, and
 // whether our donations-list-based sync could ever reconstruct that number.
+// Probes a bunch of likely paths for whatever backs Charidy's own dashboard
+// "Total" widget (the one showing Online/Offline/Recurring breakdown) —
+// that number doesn't match anything the plain /donations list produces,
+// so it must come from a separate stats/summary endpoint.
+app.get('/api/debug/charidy-stats-probe', async (req, res) => {
+  try {
+    await charidyLogin(true);
+    const org = (req.query.org || '').trim();
+    const campaign = (req.query.campaign || '').trim();
+    const candidates = [
+      `/organization/${org}/campaign/${campaign}/stats`,
+      `/organization/${org}/campaign/${campaign}/statistics`,
+      `/organization/${org}/campaign/${campaign}/summary`,
+      `/organization/${org}/campaign/${campaign}/dashboard`,
+      `/organization/${org}/campaign/${campaign}/totals`,
+      `/organization/${org}/campaign/${campaign}/report`,
+      `/organization/${org}/campaign/${campaign}/analytics`,
+      `/organization/${org}/dashboard`,
+      `/organization/${org}/stats`,
+      `/organization/${org}/campaign/${campaign}/donation_stream`,
+      `/organization/${org}/campaign/${campaign}/donation-stream`,
+    ];
+    const results = {};
+    for (const p of candidates) {
+      try { results[p] = await charidyGet(p); } catch (e) { results[p] = { error: e.message }; }
+    }
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug/charidy-campaign', async (req, res) => {
   try {
     await charidyLogin(true);
