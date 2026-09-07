@@ -322,8 +322,24 @@
 </div>
 
 <script>
-let SUM_A = null, SUM_B = null, YEAR_A = null, YEAR_B = null;
+let SUM_A = null, SUM_B = null, YEAR_A = null, YEAR_B = null, LIVE_A = null, LIVE_B = null;
 const selectedSources = new Set();
+const CAMPAIGN_LABEL_MAP = {}; // label -> campaign_id, filled in boot()
+const CHARIDY_ORG_ID = '6416'; // Agudah's own org — this dashboard only ever tracks their campaigns
+
+// Charidy's /donations API only exposes the raw pre-match charge amount, so
+// our own totals read roughly half of what Charidy's dashboard shows for a
+// campaign running a matching multiplier (e.g. this year's 2x match) — their
+// dashboard total comes from a separate endpoint that already includes the
+// match. Fetch that directly rather than trying to reverse-engineer it here.
+async function fetchLiveTotal(label){
+  const campaignId = CAMPAIGN_LABEL_MAP[label];
+  if(!campaignId) return null;
+  try{
+    const d = await api('/api/live-total?org='+CHARIDY_ORG_ID+'&campaign='+encodeURIComponent(campaignId));
+    return d && d.ok ? d : null;
+  }catch(e){ return null; }
+}
 
 async function api(path, opts){
   opts = opts || {};
@@ -346,7 +362,12 @@ async function loadAll(){
   document.getElementById('content').style.display='none';
   selectedSources.clear();
   try{
-    [SUM_A, SUM_B] = await Promise.all([api('/api/summary?label='+encodeURIComponent(YEAR_A)), api('/api/summary?label='+encodeURIComponent(YEAR_B))]);
+    [SUM_A, SUM_B, LIVE_A, LIVE_B] = await Promise.all([
+      api('/api/summary?label='+encodeURIComponent(YEAR_A)),
+      api('/api/summary?label='+encodeURIComponent(YEAR_B)),
+      fetchLiveTotal(YEAR_A),
+      fetchLiveTotal(YEAR_B)
+    ]);
     render();
     loadRefGroups();
   }catch(e){
@@ -365,17 +386,25 @@ function segCard(title, a, b){
 }
 
 function render(){
+  // Prefer Charidy's own live total (includes their matching multiplier)
+  // over our raw synced sum when it's available — the headline number
+  // should match what donors and staff see on Charidy's own dashboard.
+  // The breakdown tables below (by source/team) intentionally keep showing
+  // the raw, un-matched amounts — those are for operational tracking.
+  const amtA = LIVE_A ? LIVE_A.total : SUM_A.totals.amount;
+  const amtB = LIVE_B ? LIVE_B.total : SUM_B.totals.amount;
+
   document.getElementById('labelA').textContent = YEAR_A;
   document.getElementById('labelB').textContent = YEAR_B;
-  document.getElementById('numA').textContent = fmtMoney(SUM_A.totals.amount);
-  document.getElementById('numB').textContent = fmtMoney(SUM_B.totals.amount);
-  document.getElementById('metaA').textContent = SUM_A.totals.count.toLocaleString()+' gifts · '+SUM_A.totals.donors.toLocaleString()+' donors · avg '+fmtMoney(SUM_A.totals.avg_gift);
-  document.getElementById('metaB').textContent = SUM_B.totals.count.toLocaleString()+' gifts · '+SUM_B.totals.donors.toLocaleString()+' donors · avg '+fmtMoney(SUM_B.totals.avg_gift);
+  document.getElementById('numA').textContent = fmtMoney(amtA);
+  document.getElementById('numB').textContent = fmtMoney(amtB);
+  document.getElementById('metaA').textContent = SUM_A.totals.count.toLocaleString()+' gifts · '+(LIVE_A ? LIVE_A.donors_total : SUM_A.totals.donors).toLocaleString()+' donors · avg '+fmtMoney(SUM_A.totals.avg_gift)+(LIVE_A ? ' · incl. match' : '');
+  document.getElementById('metaB').textContent = SUM_B.totals.count.toLocaleString()+' gifts · '+(LIVE_B ? LIVE_B.donors_total : SUM_B.totals.donors).toLocaleString()+' donors · avg '+fmtMoney(SUM_B.totals.avg_gift)+(LIVE_B ? ' · incl. match' : '');
 
-  const max = Math.max(SUM_A.totals.amount, SUM_B.totals.amount, 1);
-  document.getElementById('deltaFill').style.width = (Math.min(SUM_A.totals.amount,SUM_B.totals.amount)/max*100)+'%';
-  const diff = SUM_A.totals.amount - SUM_B.totals.amount;
-  const pct = SUM_B.totals.amount ? (diff/SUM_B.totals.amount*100) : 0;
+  const max = Math.max(amtA, amtB, 1);
+  document.getElementById('deltaFill').style.width = (Math.min(amtA,amtB)/max*100)+'%';
+  const diff = amtA - amtB;
+  const pct = amtB ? (diff/amtB*100) : 0;
   const pctEl = document.getElementById('deltaPct');
   pctEl.textContent = (diff>=0?'▲ ':'▼ ')+Math.abs(pct).toFixed(1)+'% ('+YEAR_A+' vs '+YEAR_B+', '+(diff>=0?'+':'')+fmtMoney(diff)+')';
   pctEl.className = 'delta-pct '+(diff>=0?'up':'down');
@@ -787,6 +816,7 @@ async function boot(){
   try{
     const d = await api('/api/campaign-labels');
     const labels = d.rows.map(r=>r.label);
+    for(const r of d.rows) CAMPAIGN_LABEL_MAP[r.label] = r.campaign_id;
     populateYearSelectors(labels.length ? labels : ['2026','2025']);
     populateCrossYearCheckboxes(labels);
     document.getElementById('yearA').value = labels.includes('2026') ? '2026' : (labels[labels.length-1] || '2026');
