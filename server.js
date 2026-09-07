@@ -417,6 +417,37 @@ app.get('/api/debug/charidy-campaign', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Pulls every donation for a given org/campaign straight from Charidy
+// (read-only, nothing written to our DB) and totals it by status — lets us
+// check what a campaign_id ACTUALLY holds before deciding to sync it.
+app.get('/api/debug/charidy-donations-total', async (req, res) => {
+  try {
+    await charidyLogin(true);
+    const orgId = (req.query.org || '').trim();
+    const campaignId = (req.query.campaign || '').trim();
+    let page = 1;
+    const limit = 200;
+    const byStatus = {};
+    let pulled = 0;
+    while (true) {
+      const resp = await charidyGet(`/organization/${orgId}/campaign/${campaignId}/donations?page=${page}&limit=${limit}`);
+      const rows = charidyRows(resp);
+      if (!rows.length) break;
+      pulled += rows.length;
+      for (const raw of rows) {
+        const mapped = charidyMap(raw, '', {}, campaignId);
+        const st = mapped.status || '(blank)';
+        if (!byStatus[st]) byStatus[st] = { count: 0, amount: 0 };
+        byStatus[st].count++;
+        byStatus[st].amount += (mapped.amount || 0);
+      }
+      page++;
+      if (rows.length < limit || page > 300) break; // hard cap so a runaway campaign can't hang this forever
+    }
+    res.json({ ok: true, pulled, byStatus });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug/resolve', async (req, res) => {
   try {
     const camp = await resolveCampaignWhere(req, 1);
