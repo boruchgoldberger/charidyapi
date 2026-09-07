@@ -434,6 +434,27 @@ app.get('/api/debug/charidy-stats-probe', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/live-total?org=6416&campaign=45877 — the campaign's own live
+// "total raised" and donor count straight from Charidy's dashboard endpoint,
+// EXACTLY matching what their admin dashboard widget shows (this includes
+// the campaign's matching multiplier, e.g. 2x — Charidy's donations list API
+// only exposes the raw pre-match charge amount, which is why our regular
+// synced totals read roughly half of this). No auth required — this is
+// read-only and meant to be polled by a public live-counter page.
+app.get('/api/live-total', async (req, res) => {
+  try {
+    await charidyLogin(false);
+    const org = (req.query.org || '').trim();
+    const campaign = (req.query.campaign || '').trim();
+    if (!org || !campaign) return res.status(400).json({ error: 'org and campaign are required' });
+    const resp = await charidyGet(`/organization/${org}/campaign/${campaign}/dashboard`);
+    const list = resp && resp.data && resp.data.attributes && resp.data.attributes.activity_list;
+    const stats = list && list.length && list[0].details && list[0].details.campaign && list[0].details.campaign.campaign_stats;
+    if (!stats) return res.status(502).json({ error: 'campaign_stats not found in Charidy response' });
+    res.json({ ok: true, total: Number(stats.total) || 0, donors_total: Number(stats.donors_total) || 0 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug/charidy-campaign', async (req, res) => {
   try {
     await charidyLogin(true);
