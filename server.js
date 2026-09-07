@@ -400,6 +400,18 @@ app.get('/health', async (req, res) => {
 // e.g. a payment "Attempt" that a separate "Processed" row already covers
 // (both get synced from Charidy under different donation_ids for what's
 // really the same transaction, so totals were double-counting these pairs).
+app.get('/api/debug/resolve', async (req, res) => {
+  try {
+    const camp = await resolveCampaignWhere(req, 1);
+    const { byLabel } = await getCampaignLabels();
+    const yearBreakdown = (await pool.query(
+      `SELECT COALESCE(campaign_year,'(blank)') AS campaign_year, COUNT(*) n, COALESCE(SUM(amount),0) total FROM donations WHERE campaign_id = $1 AND status = ANY(ARRAY['Processed','Authorized']) GROUP BY 1 ORDER BY n DESC`,
+      [(req.query.campaign_id || '').trim()]
+    )).rows;
+    res.json({ ok: true, byLabel, resolvedClause: camp.clause, resolvedParams: camp.params, yearBreakdownForThatCampaignId: yearBreakdown });
+  } catch (e) { res.status(500).json({ error: e.message, stack: e.stack }); }
+});
+
 app.get('/api/debug/status-breakdown', async (req, res) => {
   try {
     await ensureSchema();
