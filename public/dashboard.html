@@ -579,6 +579,16 @@ function renderDonorModal(){
 // WHEN each ref's donations actually came in. Skipped for a long date range
 // (e.g. a full year's worth of donations) where half-day buckets would just
 // be noise — caps at 8 buckets (4 days) before hiding itself.
+// A "donor" within one bucket is deduped by normalized email, falling back
+// to the donor's name when email is blank — matches how donor counts are
+// computed everywhere else in this dashboard (e.g. the headline donor tally).
+function donorKey(r){
+  const email = String(r.email||'').trim().toLowerCase();
+  if(email) return 'e:'+email;
+  const name = [r.firstname, r.lastname].filter(Boolean).join(' ') || r.display_name || '';
+  return 'n:'+name.trim().toLowerCase();
+}
+
 function renderDonorTimeline(){
   const el = document.getElementById('donorModalTimeline');
   const buckets = new Map();
@@ -588,11 +598,12 @@ function renderDonorTimeline(){
     const dayLabel = d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     const half = d.getHours() < 12 ? 'AM' : 'PM';
     const key = dayLabel+' '+half;
-    if(!buckets.has(key)) buckets.set(key, { label:key, amount:0, count:0,
+    if(!buckets.has(key)) buckets.set(key, { label:key, amount:0, count:0, donors:new Set(),
       sortKey: new Date(d.getFullYear(), d.getMonth(), d.getDate(), half==='AM'?0:12).getTime() });
     const b = buckets.get(key);
     b.amount += Number(r.amount||0);
     b.count++;
+    b.donors.add(donorKey(r));
   }
   const sorted = [...buckets.values()].sort((a,b)=>a.sortKey-b.sortKey);
   // Past years' pre-campaign sends (e.g. a Slichos-period email a week
@@ -606,6 +617,7 @@ function renderDonorTimeline(){
       + '<div style="font-size:.68rem;color:var(--ink-dim);">'+esc(b.label)+'</div>'
       + '<div style="font-family:IBM Plex Mono,monospace;color:var(--gold);font-weight:600;">'+fmtMoney(b.amount)+'</div>'
       + '<div style="font-size:.68rem;color:var(--ink-dim);">'+b.count+' gift'+(b.count===1?'':'s')+'</div>'
+      + '<div style="font-size:.68rem;color:var(--teal);">'+b.donors.size+' donor'+(b.donors.size===1?'':'s')+'</div>'
       + '</div>').join('')
     + '</div>';
 }
