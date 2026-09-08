@@ -696,7 +696,11 @@ function buildDonationFilters(req, paramsStart) {
   const q = (req.query.q || '').trim().toLowerCase();
   if (q) {
     params.push('%' + q + '%'); const i = idx();
-    where.push(`(LOWER(COALESCE(display_name,'')||' '||COALESCE(firstname,'')||' '||COALESCE(lastname,'')) LIKE $${i} OR LOWER(COALESCE(email,'')) LIKE $${i} OR LOWER(COALESCE(utm_source,'')) LIKE $${i})`);
+    // Explicit ::text cast — reusing one placeholder across an OR chain of
+    // concatenated COALESCE expressions confuses Postgres's parameter-type
+    // inference ("could not determine data type of parameter"), even though
+    // every branch is unambiguously text.
+    where.push(`(LOWER(COALESCE(display_name,'')||' '||COALESCE(firstname,'')||' '||COALESCE(lastname,'')) LIKE $${i}::text OR LOWER(COALESCE(email,'')) LIKE $${i}::text OR LOWER(COALESCE(utm_source,'')) LIKE $${i}::text)`);
   }
   return { where, params };
 }
