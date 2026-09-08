@@ -928,6 +928,93 @@ function toCSV(rows, columns) {
   return header + '\n' + body;
 }
 
+// GET /api/donors/prospects?current_label=2026&min_amount=&limit=&format=csv|xlsx|json
+// Telemarketer/outreach prospect list — donors who have NOT given in the
+// current campaign yet, ranked by how much they've given in every OTHER
+// campaign (highest first = most likely to convert with a call/email).
+// Same "haven't given yet this cycle" pattern already built for KZM, adapted
+// to Agudah's single unified donations table.
+app.get('/api/donors/prospects', async (req, res) => {
+  try {
+    await ensureSchema();
+    const format = (req.query.format || 'json').toLowerCase();
+    const limit = Math.min(parseInt(req.query.limit, 10) || 5000, 20000);
+    const minOther = parseFloat(req.query.min_amount) || 0;
+
+    const currentLabel = (req.query.current_label || req.query.label || '').trim();
+    if (!currentLabel) return res.status(400).json({ error: 'current_label is required, e.g. ?current_label=2026' });
+    const { byLabel } = await getCampaignLabels();
+    const currentCampaignId = byLabel[currentLabel];
+    if (!currentCampaignId) return res.status(400).json({ error: `No campaign found for label "${currentLabel}"` });
+
+    const statusSQL = `status = ANY(ARRAY[${REAL_DONATION_STATUSES.map(s => `'${s}'`).join(',')}])`;
+    const r = await pool.query(`
+      WITH grouped AS (
+        SELECT
+          LOWER(TRIM(email)) AS email_key,
+          MAX(email) AS email, MAX(phone) AS phone,
+          MIN(NULLIF(TRIM(firstname || ' ' || COALESCE(lastname, '')), '')) AS name,
+          MAX(city) AS city, MAX(state) AS state,
+          COALESCE(SUM(amount) FILTER (WHERE ${statusSQL} AND campaign_id IS DISTINCT FROM $1), 0)::float AS other_total,
+          COALESCE(SUM(amount) FILTER (WHERE ${statusSQL} AND campaign_id = $1), 0)::float AS current_total,
+          COUNT(*) FILTER (WHERE ${statusSQL} AND campaign_id IS DISTINCT FROM $1)::int AS other_count,
+          COUNT(*) FILTER (WHERE ${statusSQL} AND campaign_id = $1)::int AS current_count,
+          COUNT(DISTINCT campaign_id) FILTER (WHERE ${statusSQL} AND campaign_id IS DISTINCT FROM $1)::int AS other_campaign_count,
+          MAX(donated_at) FILTER (WHERE ${statusSQL} AND campaign_id IS DISTINCT FROM $1) AS last_donation_date
+        FROM donations
+        WHERE email IS NOT NULL AND TRIM(email) <> ''
+        GROUP BY LOWER(TRIM(email))
+      )
+      SELECT * FROM grouped
+      WHERE current_total = 0 AND current_count = 0 AND other_total >= $2
+      ORDER BY other_total DESC
+      LIMIT $3
+    `, [currentCampaignId, minOther, limit]);
+
+    const prospects = r.rows.map(d => ({
+      name: d.name || '', email: d.email || '', phone: d.phone || '',
+      city: d.city || '', state: d.state || '',
+      other_total: Number(d.other_total || 0), other_count: Number(d.other_count || 0),
+      other_campaign_count: Number(d.other_campaign_count || 0), last_donation_date: d.last_donation_date,
+    }));
+
+    if (format === 'csv') {
+      const csv = toCSV(prospects, [
+        { header: 'Name', value: 'name' }, { header: 'Phone', value: 'phone' }, { header: 'Email', value: 'email' },
+        { header: 'City', value: 'city' }, { header: 'State', value: 'state' },
+        { header: 'Total Given (Other Years)', value: p => p.other_total.toFixed(2) },
+        { header: '# Donations', value: 'other_count' }, { header: '# Campaigns', value: 'other_campaign_count' },
+        { header: 'Last Donation', value: p => p.last_donation_date ? new Date(p.last_donation_date).toLocaleDateString() : '' },
+      ]);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="agudah_prospects_${currentLabel}_${new Date().toISOString().slice(0,10)}.csv"`);
+      return res.send(csv);
+    }
+    if (format === 'xlsx') {
+      const wsData = [['Name','Phone','Email','City','State','Total Given (Other Years)','# Donations','# Campaigns','Last Donation']];
+      for (const p of prospects) {
+        wsData.push([p.name, p.phone, p.email, p.city, p.state, p.other_total, p.other_count, p.other_campaign_count,
+          p.last_donation_date ? new Date(p.last_donation_date).toLocaleDateString() : '']);
+      }
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      ws['!cols'] = wsData[0].map((_, i) => {
+        const max = Math.max(...wsData.map(row => String(row[i] || '').length));
+        return { wch: Math.min(Math.max(max, 8), 40) };
+      });
+      XLSX.utils.book_append_sheet(wb, ws, 'Prospects');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="agudah_prospects_${currentLabel}_${new Date().toISOString().slice(0,10)}.xlsx"`);
+      return res.send(buf);
+    }
+    res.json({ current_label: currentLabel, current_campaign_id: currentCampaignId, prospect_count: prospects.length, prospects });
+  } catch (e) {
+    console.error('[donors prospects]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/export/donations.csv', async (req, res) => {
   try {
     await ensureSchema();
