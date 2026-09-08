@@ -706,10 +706,23 @@ function buildDonationFilters(req, paramsStart) {
 }
 
 app.get('/api/debug/minimal-param-test', async (req, res) => {
+  const results = {};
   try {
     const r1 = await pool.query(`SELECT COUNT(*) n FROM donations WHERE team LIKE $1`, ['%smith%']);
-    res.json({ ok: true, result: r1.rows[0] });
-  } catch (e) { res.status(500).json({ error: e.message, code: e.code, detail: e.detail, hint: e.hint }); }
+    results.bare_like = r1.rows[0];
+  } catch (e) { results.bare_like = { error: e.message }; }
+
+  try {
+    const r2 = await pool.query(`SELECT COUNT(*) n FROM donations WHERE status = ANY(ARRAY['Processed','Authorized']) AND team LIKE $1`, ['%smith%']);
+    results.with_any_array = r2.rows[0];
+  } catch (e) { results.with_any_array = { error: e.message }; }
+
+  try {
+    const r3 = await pool.query(`SELECT * FROM donations WHERE status = ANY(ARRAY['Processed','Authorized']) AND LOWER(COALESCE(team,'')) LIKE $1 LIMIT 1`, ['%smith%']);
+    results.exact_clause_text = { count: r3.rows.length };
+  } catch (e) { results.exact_clause_text = { error: e.message }; }
+
+  res.json({ ok: true, results });
 });
 
 app.get('/api/donations', async (req, res) => {
