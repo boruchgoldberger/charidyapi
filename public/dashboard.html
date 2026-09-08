@@ -304,6 +304,7 @@
 <div class="modal-bg" id="donorModalBg">
   <div class="modal" style="max-width:760px;">
     <h3 id="donorModalTitle">Donations</h3>
+    <div id="donorModalTimeline" style="margin-bottom:1rem;"></div>
     <div class="table-scroll" style="max-height:60vh;">
       <table>
         <thead><tr>
@@ -539,6 +540,7 @@ async function openSourceDrilldown(sourceName, which){
     donorModalRows = d.rows || [];
     donorSortState.col = 'amount'; donorSortState.dir = 'desc';
     renderDonorModal();
+    renderDonorTimeline();
   }catch(e){
     document.getElementById('donorModalTable').innerHTML = '<tr><td colspan="4" style="color:var(--clay)">'+esc(e.message)+'</td></tr>';
   }
@@ -570,6 +572,38 @@ function renderDonorModal(){
     const date = r.donated_at ? new Date(r.donated_at).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : '—';
     return '<tr><td>'+esc(date)+'</td><td>'+esc(name)+'</td><td class="num">'+fmtMoney(r.amount)+'</td><td>'+esc(r.team||'—')+'</td></tr>';
   }).join('');
+}
+
+// Splits each calendar day into AM (midnight-noon) / PM (noon-midnight)
+// buckets — built for the current short giving-day campaign so you can see
+// WHEN each ref's donations actually came in. Skipped for a long date range
+// (e.g. a full year's worth of donations) where half-day buckets would just
+// be noise — caps at 8 buckets (4 days) before hiding itself.
+function renderDonorTimeline(){
+  const el = document.getElementById('donorModalTimeline');
+  const buckets = new Map();
+  for(const r of donorModalRows){
+    if(!r.donated_at) continue;
+    const d = new Date(r.donated_at);
+    const dayLabel = d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const half = d.getHours() < 12 ? 'AM' : 'PM';
+    const key = dayLabel+' '+half;
+    if(!buckets.has(key)) buckets.set(key, { label:key, amount:0, count:0,
+      sortKey: new Date(d.getFullYear(), d.getMonth(), d.getDate(), half==='AM'?0:12).getTime() });
+    const b = buckets.get(key);
+    b.amount += Number(r.amount||0);
+    b.count++;
+  }
+  const sorted = [...buckets.values()].sort((a,b)=>a.sortKey-b.sortKey);
+  if(sorted.length < 2 || sorted.length > 8){ el.innerHTML = ''; return; }
+  el.innerHTML = '<div style="font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:.4rem;">When donations came in</div>'
+    + '<div style="display:flex;gap:.5rem;flex-wrap:wrap;">'
+    + sorted.map(b => '<div style="flex:1;min-width:90px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.5rem .6rem;text-align:center;">'
+      + '<div style="font-size:.68rem;color:var(--ink-dim);">'+esc(b.label)+'</div>'
+      + '<div style="font-family:IBM Plex Mono,monospace;color:var(--gold);font-weight:600;">'+fmtMoney(b.amount)+'</div>'
+      + '<div style="font-size:.68rem;color:var(--ink-dim);">'+b.count+' gift'+(b.count===1?'':'s')+'</div>'
+      + '</div>').join('')
+    + '</div>';
 }
 
 function toggleSourceSelect(name, checked){
