@@ -511,6 +511,36 @@ app.get('/api/debug/resolve', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message, stack: e.stack }); }
 });
 
+app.get('/api/debug/phone-donations-check', async (req, res) => {
+  try {
+    await ensureSchema();
+    const nameMatch = await pool.query(`
+      SELECT COUNT(*) n, COALESCE(SUM(amount),0) total FROM donations
+      WHERE ${`status = ANY(ARRAY[${REAL_DONATION_STATUSES.map(s => `'${s}'`).join(',')}])`}
+      AND (LOWER(COALESCE(firstname,'')||' '||COALESCE(lastname,'')) LIKE '%phone donation%'
+        OR LOWER(COALESCE(display_name,'')) LIKE '%phone donation%')
+    `);
+    const offlineSourceVals = await pool.query(`
+      SELECT raw_row->>'offline_donation_source' AS src, COUNT(*) n, COALESCE(SUM(amount),0) total
+      FROM donations
+      WHERE gateway = 'offline'
+      GROUP BY 1 ORDER BY n DESC LIMIT 20
+    `);
+    const sampleNames = await pool.query(`
+      SELECT donation_id, firstname, lastname, display_name, gateway, amount, donated_at
+      FROM donations
+      WHERE LOWER(COALESCE(firstname,'')||' '||COALESCE(lastname,'')||' '||COALESCE(display_name,'')) LIKE '%phone%'
+      LIMIT 10
+    `);
+    res.json({
+      ok: true,
+      name_contains_phone_donation: { count: Number(nameMatch.rows[0].n), amount: Number(nameMatch.rows[0].total) },
+      offline_donation_source_values: offlineSourceVals.rows.map(r => ({ src: r.src, count: Number(r.n), amount: Number(r.total) })),
+      sample_rows_mentioning_phone: sampleNames.rows,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug/status-breakdown', async (req, res) => {
   try {
     await ensureSchema();
