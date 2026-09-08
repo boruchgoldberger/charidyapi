@@ -595,9 +595,13 @@ function renderDonorTimeline(){
     b.count++;
   }
   const sorted = [...buckets.values()].sort((a,b)=>a.sortKey-b.sortKey);
-  if(sorted.length < 2 || sorted.length > 8){ el.innerHTML = ''; return; }
+  // Past years' pre-campaign sends (e.g. a Slichos-period email a week
+  // before the actual giving day) stretch this past a handful of days, so
+  // the cap here is generous — this only needs to hide for something that
+  // truly spans months, like "(direct)" across a whole calendar year.
+  if(sorted.length < 2 || sorted.length > 40){ el.innerHTML = ''; return; }
   el.innerHTML = '<div style="font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:.4rem;">When donations came in</div>'
-    + '<div style="display:flex;gap:.5rem;flex-wrap:wrap;">'
+    + '<div style="display:flex;gap:.5rem;flex-wrap:wrap;max-height:170px;overflow-y:auto;">'
     + sorted.map(b => '<div style="flex:1;min-width:90px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:.5rem .6rem;text-align:center;">'
       + '<div style="font-size:.68rem;color:var(--ink-dim);">'+esc(b.label)+'</div>'
       + '<div style="font-family:IBM Plex Mono,monospace;color:var(--gold);font-weight:600;">'+fmtMoney(b.amount)+'</div>'
