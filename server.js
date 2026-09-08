@@ -679,27 +679,30 @@ function buildDonationFilters(req, paramsStart) {
   const where = [], params = [];
   const idx = () => paramsStart + params.length;
   where.push(`status = ANY(ARRAY[${REAL_DONATION_STATUSES.map(s => `'${s}'`).join(',')}])`);
+  // idx() must be captured BEFORE pushing the value it's numbering — every
+  // branch below used to push first and call idx() after, which (since
+  // idx() counts off params.length) numbered every placeholder one higher
+  // than what's actually in the params array. Postgres then saw a $N in the
+  // SQL text with no bound value for it and failed with "could not
+  // determine data type of parameter $N" — this affected every filter here
+  // and both /api/donations and /api/export/donations.csv.
   const team = (req.query.team || '').trim();
   if (team === '__none__') where.push(`(team IS NULL OR team = '')`);
   else if (team === '__has__') where.push(`(team IS NOT NULL AND team <> '')`);
-  else if (team) { params.push('%' + team.toLowerCase() + '%'); where.push(`LOWER(COALESCE(team,'')) LIKE $${idx()}`); }
+  else if (team) { const i = idx(); params.push('%' + team.toLowerCase() + '%'); where.push(`LOWER(COALESCE(team,'')) LIKE $${i}`); }
   const ref = (req.query.ref || '').trim();
   if (ref === '__none__') where.push(`(utm_source IS NULL OR utm_source = '')`);
   else if (ref === '__has__') where.push(`(utm_source IS NOT NULL AND utm_source <> '')`);
-  else if (ref) { params.push('%' + ref.toLowerCase() + '%'); where.push(`LOWER(COALESCE(utm_source,'')) LIKE $${idx()}`); }
+  else if (ref) { const i = idx(); params.push('%' + ref.toLowerCase() + '%'); where.push(`LOWER(COALESCE(utm_source,'')) LIKE $${i}`); }
   const gateway = (req.query.gateway || '').trim();
-  if (gateway) { params.push(gateway); where.push(`gateway = $${idx()}`); }
+  if (gateway) { const i = idx(); params.push(gateway); where.push(`gateway = $${i}`); }
   const minAmt = req.query.min_amount !== undefined && req.query.min_amount !== '' ? Number(req.query.min_amount) : null;
-  if (minAmt != null && !isNaN(minAmt)) { params.push(minAmt); where.push(`amount >= $${idx()}`); }
+  if (minAmt != null && !isNaN(minAmt)) { const i = idx(); params.push(minAmt); where.push(`amount >= $${i}`); }
   const maxAmt = req.query.max_amount !== undefined && req.query.max_amount !== '' ? Number(req.query.max_amount) : null;
-  if (maxAmt != null && !isNaN(maxAmt)) { params.push(maxAmt); where.push(`amount <= $${idx()}`); }
+  if (maxAmt != null && !isNaN(maxAmt)) { const i = idx(); params.push(maxAmt); where.push(`amount <= $${i}`); }
   const q = (req.query.q || '').trim().toLowerCase();
   if (q) {
-    params.push('%' + q + '%'); const i = idx();
-    // Explicit ::text cast — reusing one placeholder across an OR chain of
-    // concatenated COALESCE expressions confuses Postgres's parameter-type
-    // inference ("could not determine data type of parameter"), even though
-    // every branch is unambiguously text.
+    const i = idx(); params.push('%' + q + '%');
     where.push(`(LOWER(COALESCE(display_name,'')||' '||COALESCE(firstname,'')||' '||COALESCE(lastname,'')) LIKE $${i}::text OR LOWER(COALESCE(email,'')) LIKE $${i}::text OR LOWER(COALESCE(utm_source,'')) LIKE $${i}::text)`);
   }
   return { where, params };
