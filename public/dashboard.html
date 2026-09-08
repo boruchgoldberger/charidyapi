@@ -272,6 +272,19 @@
     </div>
 
     <div class="panel">
+      <div class="panel-head"><h2>Prospects — haven't given yet this year</h2></div>
+      <p class="msg" style="margin-top:0;">Donors who gave in a past year but not yet in the selected year, ranked by how much they've given in total — highest first, for outreach/telemarketing.</p>
+      <div style="display:flex;gap:.8rem;flex-wrap:wrap;align-items:flex-end;">
+        <div><label class="msg" style="display:block;">This year</label>
+          <select id="prospectsYear" onchange="updateProspectsLinks()"></select>
+        </div>
+        <div><label class="msg" style="display:block;">Min total given</label><input type="text" id="prospectsMinAmt" style="width:90px;" placeholder="0" oninput="updateProspectsLinks()"></div>
+        <a class="btn tiny" id="prospectsCsv" href="#" target="_blank">⬇ CSV</a>
+        <a class="btn tiny" id="prospectsXlsx" href="#" target="_blank">⬇ Excel</a>
+      </div>
+    </div>
+
+    <div class="panel">
       <div class="panel-head"><h2>Donors who gave across multiple years</h2></div>
       <p class="msg" style="margin-top:0;">Check any years, choose "gave in ALL of them" for real multi-year loyalty, or "ANY" for a combined list.</p>
       <div id="crossYearYears" style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:.8rem;"></div>
@@ -855,6 +868,25 @@ function populateYearSelectors(labels){
     sel.innerHTML = uniq.map(y=>'<option value="'+esc(y)+'">'+esc(y)+'</option>').join('');
     if(uniq.includes(current)) sel.value = current;
   }
+  // No "all" option here — prospects need one specific real campaign to
+  // compare "gave this year" against, unlike the A/B comparison selectors.
+  const pSel = document.getElementById('prospectsYear');
+  if(pSel){
+    const current = pSel.value;
+    pSel.innerHTML = [...new Set(labels)].map(y=>'<option value="'+esc(y)+'">'+esc(y)+'</option>').join('');
+    if(labels.includes(current)) pSel.value = current;
+    else if(labels.includes('2026')) pSel.value = '2026';
+    updateProspectsLinks();
+  }
+}
+
+function updateProspectsLinks(){
+  const year = document.getElementById('prospectsYear').value;
+  const minAmt = document.getElementById('prospectsMinAmt').value.trim();
+  const params = new URLSearchParams({ current_label: year });
+  if(minAmt) params.set('min_amount', minAmt);
+  document.getElementById('prospectsCsv').href = '/api/donors/prospects?'+params.toString()+'&format=csv';
+  document.getElementById('prospectsXlsx').href = '/api/donors/prospects?'+params.toString()+'&format=xlsx';
 }
 
 async function boot(){
