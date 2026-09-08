@@ -960,7 +960,8 @@ app.get('/api/donors/prospects', async (req, res) => {
           COUNT(*) FILTER (WHERE ${statusSQL} AND campaign_id IS DISTINCT FROM $1)::int AS other_count,
           COUNT(*) FILTER (WHERE ${statusSQL} AND campaign_id = $1)::int AS current_count,
           COUNT(DISTINCT campaign_id) FILTER (WHERE ${statusSQL} AND campaign_id IS DISTINCT FROM $1)::int AS other_campaign_count,
-          MAX(donated_at) FILTER (WHERE ${statusSQL} AND campaign_id IS DISTINCT FROM $1) AS last_donation_date
+          MAX(donated_at) FILTER (WHERE ${statusSQL} AND campaign_id IS DISTINCT FROM $1) AS last_donation_date,
+          COALESCE(MAX(amount) FILTER (WHERE ${statusSQL}), 0)::float AS highest_donation
         FROM donations
         WHERE email IS NOT NULL AND TRIM(email) <> ''
         GROUP BY LOWER(TRIM(email))
@@ -976,6 +977,7 @@ app.get('/api/donors/prospects', async (req, res) => {
       city: d.city || '', state: d.state || '',
       other_total: Number(d.other_total || 0), other_count: Number(d.other_count || 0),
       other_campaign_count: Number(d.other_campaign_count || 0), last_donation_date: d.last_donation_date,
+      highest_donation: Number(d.highest_donation || 0),
     }));
 
     if (format === 'csv') {
@@ -983,6 +985,7 @@ app.get('/api/donors/prospects', async (req, res) => {
         { header: 'Name', value: 'name' }, { header: 'Phone', value: 'phone' }, { header: 'Email', value: 'email' },
         { header: 'City', value: 'city' }, { header: 'State', value: 'state' },
         { header: 'Total Given (Other Years)', value: p => p.other_total.toFixed(2) },
+        { header: 'Highest Donation Ever', value: p => p.highest_donation.toFixed(2) },
         { header: '# Donations', value: 'other_count' }, { header: '# Campaigns', value: 'other_campaign_count' },
         { header: 'Last Donation', value: p => p.last_donation_date ? new Date(p.last_donation_date).toLocaleDateString() : '' },
       ]);
@@ -991,9 +994,9 @@ app.get('/api/donors/prospects', async (req, res) => {
       return res.send(csv);
     }
     if (format === 'xlsx') {
-      const wsData = [['Name','Phone','Email','City','State','Total Given (Other Years)','# Donations','# Campaigns','Last Donation']];
+      const wsData = [['Name','Phone','Email','City','State','Total Given (Other Years)','Highest Donation Ever','# Donations','# Campaigns','Last Donation']];
       for (const p of prospects) {
-        wsData.push([p.name, p.phone, p.email, p.city, p.state, p.other_total, p.other_count, p.other_campaign_count,
+        wsData.push([p.name, p.phone, p.email, p.city, p.state, p.other_total, p.highest_donation, p.other_count, p.other_campaign_count,
           p.last_donation_date ? new Date(p.last_donation_date).toLocaleDateString() : '']);
       }
       const wb = XLSX.utils.book_new();
