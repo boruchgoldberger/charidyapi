@@ -705,6 +705,13 @@ function buildDonationFilters(req, paramsStart) {
   return { where, params };
 }
 
+app.get('/api/debug/minimal-param-test', async (req, res) => {
+  try {
+    const r1 = await pool.query(`SELECT COUNT(*) n FROM donations WHERE team LIKE $1`, ['%smith%']);
+    res.json({ ok: true, result: r1.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message, code: e.code, detail: e.detail, hint: e.hint }); }
+});
+
 app.get('/api/donations', async (req, res) => {
   try {
     await ensureSchema();
