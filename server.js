@@ -299,7 +299,17 @@ function charidyMap(item, year, teamNameMap, campaignId) {
   const amount = amtRaw != null ? (parseFloat(String(amtRaw).replace(/[^0-9.\-]/g, '')) || null) : null;
   const offlineSource = _label(_deepPick(a, ['offline_donation_source']));
   const bankName = _label(_deepPick(a, ['bank_name']));
-  const gateway = (offlineSource && String(offlineSource).trim()) ? 'offline' : (bankName || 'online');
+  // bank_name ('check', 'banquest', 'donorsfund', etc.) is Charidy's own,
+  // more specific payment-method label and always wins when present — this
+  // matches what Charidy's own dashboard breaks gifts out by. A batch of
+  // manually-entered checks has BOTH bank_name='check' AND
+  // offline_donation_source set (e.g. 'momentum', a phone-a-thon board);
+  // checking offlineSource first (as this used to) discarded bank_name and
+  // dumped every one of those into a generic 'offline' bucket, which is why
+  // our per-gateway totals undercounted 'check' by six figures against
+  // Charidy's own report. Only fall back to the generic 'offline'/'online'
+  // labels when Charidy gives us no bank_name at all.
+  const gateway = bankName || ((offlineSource && String(offlineSource).trim()) ? 'offline' : 'online');
   return {
     donation_id: String(_label(_deepPick(a, ['id', 'donation_id', 'uuid', 'transaction_id', '_id'])) || ('charidy-' + Math.random().toString(36).slice(2))),
     campaign_id: String(campaignId),
