@@ -590,6 +590,19 @@ app.get('/api/debug/campaign-timing', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// TEMP — inspect raw Charidy attributes for donations on a campaign's most
+// recent page, to see fields our own sync mapping (charidyMap) discards.
+app.get('/api/debug/raw-donation-page', async (req, res) => {
+  try {
+    const orgId = (req.query.org || '6416').trim();
+    const campaignId = (req.query.campaign || '').trim();
+    const page = req.query.page || '1';
+    const resp = await charidyGet(`/organization/${orgId}/campaign/${campaignId}/donations?page=${page}&limit=10`);
+    const rows = charidyRows(resp);
+    res.json({ ok: true, count: rows.length, rows: rows.map(r => ({ id: r.id, attributes: r.attributes })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug/status-breakdown', async (req, res) => {
   try {
     await ensureSchema();
