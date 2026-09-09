@@ -613,6 +613,21 @@ app.get('/api/debug/raw-donation-page', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// TEMP — real progress signal for a running full resync: how many rows for
+// this campaign have actually been touched (fresh updated_at) vs still
+// carrying their old, pre-resync timestamp.
+app.get('/api/debug/sync-progress', async (req, res) => {
+  try {
+    const campaignId = (req.query.campaign_id || '').trim();
+    const r = await pool.query(
+      `SELECT COUNT(*) n, MIN(updated_at) oldest, MAX(updated_at) newest,
+        COUNT(*) FILTER (WHERE updated_at > NOW() - INTERVAL '2 minutes') touched_last_2min
+       FROM donations WHERE campaign_id = $1`, [campaignId]
+    );
+    res.json({ ok: true, campaign_id: campaignId, ...r.rows[0], n: Number(r.rows[0].n), touched_last_2min: Number(r.rows[0].touched_last_2min) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug/status-breakdown', async (req, res) => {
   try {
     await ensureSchema();
