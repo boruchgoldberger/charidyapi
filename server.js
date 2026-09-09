@@ -534,6 +534,62 @@ app.get('/api/debug/phone-donations-check', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/debug/campaign-timing?label=2025&end_ts=1758161700 — splits a
+// campaign's real donations into "during/before" (donated_at <= end_ts) vs.
+// "after" (donated_at > end_ts), with the "after" side bucketed by how many
+// days past the campaign's own display_end_date the gift landed. Each bucket
+// is further split online vs. offline: ONLINE = a donor swiping their own
+// card on the live campaign page (gateway online/stripe*); OFFLINE = anything
+// staff-mediated — mailed check, phone call-in (gateway 'banquest', per
+// firstname='Phone'/lastname='Donation'), DAF grant (donorsfund/ojc), pledge,
+// or a manually keyed gift (gateway 'offline').
+const ONLINE_GATEWAYS = ['online', 'stripe', 'stripe-apple-pay', 'stripe-element'];
+app.get('/api/debug/campaign-timing', async (req, res) => {
+  try {
+    await ensureSchema();
+    const camp = await resolveCampaignWhere(req, 1);
+    if (!camp.clause) return res.status(400).json({ error: 'label or year required' });
+    const endTs = Number(req.query.end_ts);
+    if (!endTs) return res.status(400).json({ error: 'end_ts (unix seconds) required' });
+    const statusSQL = `status = ANY(ARRAY[${REAL_DONATION_STATUSES.map(s => `'${s}'`).join(',')}])`;
+    const onlineSQL = `gateway = ANY(ARRAY[${ONLINE_GATEWAYS.map(g => `'${g}'`).join(',')}])`;
+    const params = [...camp.params, new Date(endTs * 1000).toISOString()];
+    const endParam = params.length;
+    const bucketSQL = `
+      CASE
+        WHEN donated_at <= $${endParam} THEN 'during_or_before'
+        WHEN donated_at <= $${endParam}::timestamptz + INTERVAL '1 day' THEN 'day_1'
+        WHEN donated_at <= $${endParam}::timestamptz + INTERVAL '7 days' THEN 'days_2_7'
+        WHEN donated_at <= $${endParam}::timestamptz + INTERVAL '30 days' THEN 'days_8_30'
+        WHEN donated_at <= $${endParam}::timestamptz + INTERVAL '90 days' THEN 'days_31_90'
+        WHEN donated_at <= $${endParam}::timestamptz + INTERVAL '180 days' THEN 'days_91_180'
+        ELSE 'days_181_plus'
+      END`;
+    const rows = (await pool.query(`
+      SELECT ${bucketSQL} AS bucket,
+        CASE WHEN ${onlineSQL} THEN 'online' ELSE 'offline' END AS channel,
+        COUNT(*) n, COALESCE(SUM(amount),0) total
+      FROM donations
+      WHERE ${statusSQL} AND ${camp.clause} AND donated_at IS NOT NULL
+      GROUP BY 1,2
+    `, params)).rows;
+    const overallAfter = (await pool.query(`
+      SELECT CASE WHEN ${onlineSQL} THEN 'online' ELSE 'offline' END AS channel,
+        COUNT(*) n, COALESCE(SUM(amount),0) total, MAX(donated_at) last_gift_at
+      FROM donations
+      WHERE ${statusSQL} AND ${camp.clause} AND donated_at > $${endParam}
+      GROUP BY 1
+    `, params)).rows;
+    res.json({
+      ok: true,
+      label: req.query.label || req.query.year,
+      end_ts: endTs, end_iso: new Date(endTs * 1000).toISOString(),
+      buckets: rows.map(r => ({ bucket: r.bucket, channel: r.channel, count: Number(r.n), amount: Number(r.total) })),
+      after_campaign_summary: overallAfter.map(r => ({ channel: r.channel, count: Number(r.n), amount: Number(r.total), last_gift_at: r.last_gift_at })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/debug/status-breakdown', async (req, res) => {
   try {
     await ensureSchema();
